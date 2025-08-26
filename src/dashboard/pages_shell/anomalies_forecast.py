@@ -36,8 +36,8 @@ def fetch_equipment() -> List[Dict[str, Any]]:
         r = requests.get(url, headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             return r.json() or []
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Не удалось получить список оборудования: {e}")
     return []
 
 
@@ -55,8 +55,8 @@ def fetch_anomalies(equipment_id: str, start: Optional[str], end: Optional[str],
         r = requests.get(url, params=params, headers=_auth_headers(), timeout=60)
         if r.status_code == 200:
             return r.json()
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Ошибка загрузки аномалий: {e}")
     return None
 
 
@@ -71,8 +71,8 @@ def fetch_forecast(equipment_id: str, steps: int) -> Dict[str, Any] | None:
         r = requests.get(f"{_api()}/api/v1/anomalies/forecast_rms/{equipment_id}", params={"steps": steps}, headers=_auth_headers(), timeout=60)
         if r.status_code == 200:
             return r.json()
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Ошибка загрузки прогноза: {e}")
     return None
 
 
@@ -83,8 +83,8 @@ def fetch_distribution(anomalies_only: bool = False) -> Dict[str, Any] | None:
         r = requests.get(url, params={"anomalies_only": str(bool(anomalies_only)).lower()}, headers=_auth_headers(), timeout=60)
         if r.status_code == 200:
             return r.json()
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Ошибка загрузки распределения: {e}")
     return None
 
 
@@ -95,8 +95,8 @@ def fetch_labels() -> List[Dict[str, Any]]:
         r = requests.get(url, headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             return r.json() or []
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Ошибка загрузки меток кластеров: {e}")
     return []
 
 
@@ -108,8 +108,8 @@ def fetch_signals_total(equipment_id: str) -> int:
         r = requests.get(url, params={"equipment_id": equipment_id, "page": 1, "page_size": 1}, headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             return int((r.json() or {}).get('total_count', 0))
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Ошибка получения общего числа сигналов: {e}")
     return 0
 
 

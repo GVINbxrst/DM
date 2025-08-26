@@ -84,7 +84,8 @@ async def compress_and_store_results(obj: Dict) -> bytes:
 def _prepare_feature_vector(feature: Feature) -> List[float]:
     vector: List[float] = []
     phases = ['a', 'b', 'c']
-    stats = ['rms', 'crest', 'kurtosis', 'skewness']
+    # Имена признаков должны соответствовать колонкам в модели БД (kurt_*, skew_*)
+    stats = ['rms', 'crest', 'kurt', 'skew']
     for stat in stats:
         for ph in phases:
             val = getattr(feature, f"{stat}_{ph}", None)
@@ -148,10 +149,21 @@ async def load_latest_models_async() -> Dict[str, object]:  # pragma: no cover
                             state = joblib.load(stream_state)
                             try:
                                 model.model = state.get('model')  # type: ignore
-                            except Exception:
-                                pass
-                    except Exception:
-                        pass
+                            except Exception as ie:
+                                # не критично, но логируем и считаем
+                                try:
+                                    from src.utils.metrics import increment_counter
+                                    increment_counter('worker_best_effort_skipped_total', {'stage': 'stream_state_assign'})
+                                except Exception:
+                                    pass
+                                logger.warning(f"stream_state assign failed: {ie}")
+                    except Exception as le:
+                        try:
+                            from src.utils.metrics import increment_counter
+                            increment_counter('worker_best_effort_skipped_total', {'stage': 'stream_state_load'})
+                        except Exception:
+                            pass
+                        logger.warning(f"stream_state load failed: {le}")
                     out = {'anomaly_model': model, 'model_type': 'stream', 'threshold': threshold, 'version': version}
                 elif mtype == 'stats':
                     # Для статистического baseline состояние не обязательно, читаем z_threshold из manifest или stats_state.json
@@ -163,12 +175,22 @@ async def load_latest_models_async() -> Dict[str, object]:  # pragma: no cover
                             import json as _j
                             state = _j.loads(stat_path.read_text(encoding='utf-8'))
                             z_thr = float(state.get('z_threshold', z_thr))
-                    except Exception:
-                        pass
+                    except Exception as se:
+                        try:
+                            from src.utils.metrics import increment_counter
+                            increment_counter('worker_best_effort_skipped_total', {'stage': 'stats_state_read'})
+                        except Exception:
+                            pass
+                        logger.warning(f"stats_state read failed: {se}")
                     model = StatsQuantileBaseline(z_threshold=z_thr)
                     out = {'anomaly_model': model, 'model_type': 'stats', 'threshold': model.z_threshold, 'version': version}
     except Exception as e:  # pragma: no cover
-        logger.debug(f"model load fail: {e}")
+        try:
+            from src.utils.metrics import increment_counter
+            increment_counter('worker_errors_total', {'type': 'model_manifest_load'})
+        except Exception:
+            pass
+        logger.warning(f"model load fail: {e}")
     return out
 
 
@@ -187,8 +209,13 @@ async def _detect_anomalies_async(feature_id: str) -> Dict:
             eq_id = (await session.execute(
                 select(RawSignal.equipment_id).where(RawSignal.id == feature.raw_id)
             )).scalar_one()
-        except Exception:
+        except Exception as e:
             eq_id = None
+            try:
+                increment_counter('worker_errors_total', {'type': 'equipment_id_lookup'})
+            except Exception:
+                pass
+            logger.warning(f"equipment_id lookup failed: {e}")
         vector = _prepare_feature_vector(feature)
         models = await load_latest_models_async()
         if not models or 'anomaly_model' not in models:
@@ -205,12 +232,21 @@ async def _detect_anomalies_async(feature_id: str) -> Dict:
         try:
             score = model.update(feat_dict)  # type: ignore
         except Exception as e:  # pragma: no cover
-            logger.debug(f"model.update error: {e}")
+            try:
+                increment_counter('worker_errors_total', {'type': 'model_update'})
+            except Exception:
+                pass
+            logger.warning(f"model.update error: {e}")
         anomaly_detected = False
         try:
             anomaly_detected = model.is_anomaly(score)  # type: ignore
-        except Exception:
+        except Exception as e:
             anomaly_detected = False
+            try:
+                increment_counter('worker_errors_total', {'type': 'model_is_anomaly'})
+            except Exception:
+                pass
+            logger.warning(f"model.is_anomaly error: {e}")
         # Простейшая вероятность по сигмоиде нормализованного score
         import math
         prob_raw = 1.0 / (1.0 + math.exp(-min(max(score, -20), 20)))
@@ -250,8 +286,12 @@ async def _detect_anomalies_async(feature_id: str) -> Dict:
                 'model_name': f'anomaly_{mtype}',
                 'equipment_id': str(getattr(feature, 'equipment_id', 'unknown')),
             })
-        except Exception:
-            pass
+        except Exception as me:
+            try:
+                increment_counter('worker_errors_total', {'type': 'metrics_emit_failed'})
+            except Exception:
+                pass
+            logger.warning(f"metrics emit failed: {me}")
     return {'status': 'success', 'feature_id': feature_id, 'anomaly_detected': anomaly_detected, 'anomaly_score_id': str(score_row.id)}
 
 
@@ -302,8 +342,12 @@ async def _forecast_trend_async(equipment_id: str) -> Dict:
                 'equipment_id': str(equipment.id),
                 'status': 'success'
             })
-        except Exception:
-            pass
+        except Exception as me:
+            try:
+                increment_counter('worker_errors_total', {'type': 'metrics_emit_failed'})
+            except Exception:
+                pass
+            logger.warning(f"metrics emit failed: {me}")
     return {'status': 'success', 'equipment_id': equipment_id, 'summary': forecast_result.get('summary'), 'forecast_id': str(forecast_row.id)}
 
 
@@ -384,8 +428,8 @@ async def run_clustering_async(min_cluster_size: int = 10) -> Dict:
             }
             import json
             (model_dir / 'manifest.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8')
-        except Exception:  # pragma: no cover
-            pass
+        except Exception as e:  # pragma: no cover
+            logger.warning(f"clustering manifest write failed: {e}")
         return {
             'status': 'success',
             'features_clustered': len(result.feature_ids),

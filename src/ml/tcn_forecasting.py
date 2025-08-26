@@ -4,11 +4,10 @@
 Выход: (p_defect_next, severity_next) в диапазоне 0..1.
 """
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 import random
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any
 import numpy as np
-from typing import Any
 try:
     import torch
     import torch.nn as nn
@@ -21,6 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.settings import get_settings
 from .utils import save_model, load_model
 from src.database.models import Feature, RawSignal
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _parse_channels(cfg: str) -> List[int]:
@@ -65,15 +67,16 @@ if nn is not None:
                 layers.append(TemporalBlock(prev, ch, kernel_size, dilation, dropout))
                 prev = ch
             self.tcn = nn.Sequential(*layers)
+            # Голова без финальной активации: первый выход — логит вероятности дефекта,
+            # второй — непрерывная регрессионная величина (степень выраженности)
             self.head = nn.Sequential(
                 nn.AdaptiveAvgPool1d(1),
                 nn.Flatten(),
                 nn.Linear(prev, prev//2),
                 nn.ReLU(),
-                nn.Linear(prev//2, 2),  # p_defect, severity
-                nn.Sigmoid()
+                nn.Linear(prev//2, 2),  # [логит(p_defect), «сырая» степень]
             )
-        def forward(self, x):  # x: (B,T,D) -> transpose to (B,D,T)
+        def forward(self, x):  # x: (B,T,D) -> транспонируем в (B,D,T)
             x = x.transpose(1, 2)
             out = self.tcn(x)
             return self.head(out)
@@ -98,10 +101,15 @@ class TCNConfig:
     scheduler_factor: float = 0.5
     scheduler_patience: int = 3
     scheduler_min_lr: float = 1e-5
+    # Логирование
+    log_every: int = 5
     # Дополнительные параметры обучения
     val_fraction: float = 0.2  # доля валидации (последние окна по времени)
     early_stopping_patience: int = 10
     min_delta: float = 0.0
+    # Генерация целевых меток
+    target_method: str = "percentile"  # метод построения таргетов: 'percentile'
+    target_percentile: float = 90.0     # перцентиль для порога дефекта
 
 
 def _extract_feature_vector(f: Feature) -> Optional[List[float]]:
@@ -120,8 +128,42 @@ def _extract_feature_vector(f: Feature) -> Optional[List[float]]:
         vec.append(float(v) if v is not None else 0.0)
     return vec if vec else None
 
-async def load_sequence(session: AsyncSession, equipment_id, window: int, horizon: int) -> Tuple[np.ndarray, np.ndarray]:
-    q = select(Feature).join(RawSignal).where(RawSignal.equipment_id == equipment_id).order_by(Feature.window_start.asc())
+async def load_sequence(
+    session: AsyncSession,
+    equipment_id,
+    window: int,
+    horizon: int,
+    target_method: str = "percentile",
+    target_percentile: float = 90.0,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Формирует обучающие последовательности признаков и целевые метки для TCN.
+
+    Назначение:
+        - Загружает признаки для оборудования, собирает окна длиной ``window`` и таргеты на горизонт ``horizon``.
+        - Порог для вероятности дефекта задаётся через метод/перцентиль.
+
+    Параметры:
+        - session: асинхронная сессия БД.
+        - equipment_id: идентификатор оборудования.
+        - window: длина окна по времени (T).
+        - horizon: горизонт для вычисления таргета.
+        - target_method: метод порога ('percentile').
+        - target_percentile: значение перцентиля (0..100).
+
+    Возвращает:
+        - X: np.ndarray формы (N, T, D) — окна признаков.
+        - y: np.ndarray формы (N, 2) — [p_defect, severity].
+
+    Исключения:
+        - ValueError: если данных недостаточно (меньше window+horizon+5 валидных векторов).
+    """
+    # Явно укажем условие соединения, чтобы не зависеть от настроек relationship
+    q = (
+        select(Feature)
+        .join(RawSignal, Feature.raw_id == RawSignal.id)
+        .where(RawSignal.equipment_id == equipment_id)
+        .order_by(Feature.window_start.asc())
+    )
     res = await session.execute(q)
     feats = res.scalars().all()
     vectors: List[List[float]] = []
@@ -132,17 +174,24 @@ async def load_sequence(session: AsyncSession, equipment_id, window: int, horizo
     if len(vectors) < window + horizon + 5:
         raise ValueError("Недостаточно данных для TCN")
     arr = np.array(vectors, dtype=np.float32)
-    # Целевые значения: вероятность дефекта (эвристика) и severity (нормализованный рост mean RMS)
+    # Целевые значения: вероятность дефекта (эвристика) и степень выраженности (нормализованный рост среднего RMS)
     rms_idx_start = -6  # последние 6 значений - RMS/mean
     rms_triplets = arr[:, rms_idx_start:rms_idx_start+6]
-    rms_mean = rms_triplets[:, :3].mean(axis=1)  # rms_a,b,c среднее
+    rms_mean = rms_triplets[:, :3].mean(axis=1)  # среднее по rms_a,b,c
     target_p = []
     target_s = []
-    thresh = np.percentile(rms_mean, 90)
+    # Порог дефекта по методу и параметрам
+    if target_method == "percentile":
+        pct = float(target_percentile)
+        pct = 0.0 if pct < 0.0 else (100.0 if pct > 100.0 else pct)
+        thresh = np.percentile(rms_mean, pct)
+    else:
+        # Запасной вариант — стандартный 90-й перцентиль
+        thresh = np.percentile(rms_mean, 90.0)
     for i in range(0, len(arr) - window - horizon):
         future_rms = rms_mean[i+window:i+window+horizon]
         p_defect = 1.0 if future_rms.mean() > thresh else 0.0
-        # severity: относительный рост к текущему среднему
+        # Степень: относительный рост к текущему среднему
         current = rms_mean[i+window-1]
         growth = max(future_rms.mean() - current, 0.0)
         severity = float(growth / (thresh + 1e-6))
@@ -156,6 +205,24 @@ async def load_sequence(session: AsyncSession, equipment_id, window: int, horizo
     return X, y
 
 async def train_tcn(equipment_id, config: Optional[TCNConfig] = None) -> Dict:
+    """Обучает модель TCN для указанного оборудования и сохраняет артефакт.
+
+    Поведение:
+        - Делит данные на train/val по времени, нормализует по train, обучает с ранней остановкой и шедулером.
+        - Сохраняет лучшие веса, конфигурацию и статистики нормализации в кеш моделей.
+
+    Параметры:
+        - equipment_id: идентификатор оборудования.
+        - config: конфигурация обучения TCN (если None — берётся из настроек).
+
+    Возвращает:
+        - dict со статусом и метриками: {'status','samples','train_samples', 'validation_skipped', ...}
+        - В случае нехватки данных: {'status': 'skipped', 'error': 'insufficient_data', ...}
+        - В случае ошибки загрузки последовательности: {'status': 'error', 'error': 'sequence_load_failed', ...}
+
+    Исключения:
+        - RuntimeError: когда TCN отключён настройкой или отсутствует torch.
+    """
     st = get_settings()
     if getattr(st, 'TCN_ENABLED', True) is False:
         raise RuntimeError("TCN отключен настройкой TCN_ENABLED=false")
@@ -171,7 +238,7 @@ async def train_tcn(equipment_id, config: Optional[TCNConfig] = None) -> Dict:
             max_epochs=st.TCN_MAX_EPOCHS,
             lr=st.TCN_LEARNING_RATE,
         )
-    # Ensure model directory exists
+    # Гарантируем наличие каталога для моделей
     try:
         model_dir = st.models_path / 'tcn'
         model_dir.mkdir(parents=True, exist_ok=True)
@@ -179,8 +246,31 @@ async def train_tcn(equipment_id, config: Optional[TCNConfig] = None) -> Dict:
         pass
     # Реально загрузим данные
     from src.database.connection import get_async_session
-    async with get_async_session() as session:
-        X, y = await load_sequence(session, equipment_id, config.window_size, config.horizon)
+    try:
+        async with get_async_session() as session:
+            X, y = await load_sequence(
+                session,
+                equipment_id,
+                config.window_size,
+                config.horizon,
+                config.target_method,
+                config.target_percentile,
+            )
+    except ValueError as e:
+        # Недостаточно данных для обучения
+        return {
+            'status': 'skipped',
+            'error': 'insufficient_data',
+            'required_min': int(config.window_size + config.horizon + 5),
+            'detail': str(e),
+        }
+    except Exception as e:
+        # Общая ошибка загрузки последовательности
+        return {
+            'status': 'error',
+            'error': 'sequence_load_failed',
+            'detail': str(e),
+        }
     # Разбиение на train/val по времени (валидация — последние окна)
     N = X.shape[0]
     use_val = N >= 5 and config.val_fraction > 0.0
@@ -218,7 +308,8 @@ async def train_tcn(equipment_id, config: Optional[TCNConfig] = None) -> Dict:
     model = TCN(X.shape[2], config.channels, config.kernel_size, config.dropout).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=config.lr)
     # Раздельные функции потерь: BCE для вероятности дефекта и MSE для непрерывной «severity»
-    crit_cls = nn.BCELoss()
+    # Классификация обучается по логитам через BCEWithLogits
+    crit_cls = nn.BCEWithLogitsLoss()
     crit_reg = nn.MSELoss()
     model.train()
     X_tr_t = torch.tensor(X_train, dtype=torch.float32, device=device)
@@ -277,17 +368,31 @@ async def train_tcn(equipment_id, config: Optional[TCNConfig] = None) -> Dict:
                 best_state = model.state_dict()
                 best_epoch = epoch
                 no_improve = 0
+                if (epoch + 1) % max(1, config.log_every) == 0:
+                    try:
+                        cur_lr = opt.param_groups[0]['lr']
+                    except Exception:
+                        cur_lr = None
+                    logger.info(f"Обучение TCN: эпоха={epoch+1}/{config.max_epochs} train_loss={last_train_loss:.6f} val_loss={v:.6f} (улучшение) lr={cur_lr}")
             else:
                 no_improve += 1
                 if no_improve >= config.early_stopping_patience:
+                    logger.info(f"Ранняя остановка TCN на эпохе={epoch+1}: best_val={best_val:.6f} лучшая_эпоха={best_epoch}")
                     break
         else:
             # Если валидации нет — ориентируемся на train и можем шагать шедулером по train
             scheduler.step(last_train_loss)
+        # Периодическое логирование, если не было ветки улучшения выше
+        if val_loader is None and (epoch + 1) % max(1, config.log_every) == 0:
+            try:
+                cur_lr = opt.param_groups[0]['lr']
+            except Exception:
+                cur_lr = None
+            logger.info(f"Обучение TCN: эпоха={epoch+1}/{config.max_epochs} train_loss={last_train_loss:.6f} lr={cur_lr}")
     # Сохраняем модель
     # Сохраняем модель и статистики нормализации (если рассчитаны)
     chosen_state = best_state if best_state is not None else model.state_dict()
-    payload = {'state_dict': chosen_state, 'config': config.__dict__, 'input_dim': X.shape[2]}
+    payload = {'state_dict': chosen_state, 'config': asdict(config), 'input_dim': X.shape[2]}
     if feat_mean is not None and feat_std is not None:
         payload['norm'] = {
             'mean': feat_mean.astype(np.float32).tolist(),
@@ -317,6 +422,22 @@ async def train_tcn(equipment_id, config: Optional[TCNConfig] = None) -> Dict:
     return result
 
 async def predict_tcn(equipment_id, recent_window: Optional[np.ndarray] = None, config: Optional[TCNConfig] = None) -> Dict:
+    """Выполняет предсказание (p_defect_next, severity_next) для оборудования.
+
+    Поведение:
+        - Пытается загрузить модель из кеша; при отсутствии — обучает и повторно пытается загрузить.
+        - Использует конфигурацию из артефакта для архитектуры и длины окна; нормализует входы по сохранённым mean/std.
+
+    Параметры:
+        - equipment_id: идентификатор оборудования.
+        - recent_window: опциональное окно (T x D или 1 x T x D); если не задано, берём из БД.
+        - config: конфигурация (флаги и параметры предсказания); используется как запасной вариант.
+
+    Возвращает:
+        - dict с ключами 'p_defect_next' и 'severity_next' в [0,1].
+        - В негативных сценариях возвращает поля 'error'/'status' с деталями (например, torch_not_available,
+            insufficient_data, model_not_available, state_dict_missing, state_load_failed и др.).
+    """
     st = get_settings()
     # Фича-флаг отключения
     if getattr(st, 'TCN_ENABLED', True) is False:
@@ -341,9 +462,21 @@ async def predict_tcn(equipment_id, recent_window: Optional[np.ndarray] = None, 
         except Exception:  # pragma: no cover
             pass
         try:
-            await train_tcn(equipment_id, config)
+            train_result = await train_tcn(equipment_id, config)
         except Exception as e:
             return {'p_defect_next': 0.0, 'severity_next': 0.0, 'error': 'train_failed', 'detail': str(e)}
+        # Если обучение пропущено или завершилось ошибкой — возвращаем понятный ответ
+        if isinstance(train_result, dict) and train_result.get('status') != 'trained':
+            resp = {'p_defect_next': 0.0, 'severity_next': 0.0}
+            if 'status' in train_result:
+                resp['status'] = train_result['status']
+            if 'error' in train_result:
+                resp['error'] = train_result['error']
+            if 'detail' in train_result:
+                resp['detail'] = train_result['detail']
+            if 'required_min' in train_result:
+                resp['required_min'] = train_result['required_min']
+            return resp
         data = load_model(f"tcn/model_{equipment_id}")
         if data is None:
             # Модель не была сохранена после обучения — возвращаем понятную ошибку
@@ -384,7 +517,19 @@ async def predict_tcn(equipment_id, recent_window: Optional[np.ndarray] = None, 
         else:
             # Не можем надёжно определить input_dim — требуем recent_window или обновить артефакт модели
             return {'p_defect_next': 0.0, 'severity_next': 0.0, 'error': 'input_dim_unresolved'}
-    model = TCN( input_dim=input_dim, channels=config.channels, kernel_size=config.kernel_size, dropout=config.dropout)
+    # Используем сохранённую конфигурацию архитектуры (если есть)
+    saved_conf = data.get('config') if isinstance(data, dict) else None
+    if isinstance(saved_conf, dict):
+        arch_channels = saved_conf.get('channels', config.channels)
+        arch_kernel = int(saved_conf.get('kernel_size', config.kernel_size))
+        arch_dropout = float(saved_conf.get('dropout', config.dropout))
+        infer_window = int(saved_conf.get('window_size', config.window_size))
+    else:
+        arch_channels = config.channels
+        arch_kernel = config.kernel_size
+        arch_dropout = config.dropout
+        infer_window = config.window_size
+    model = TCN(input_dim=input_dim, channels=arch_channels, kernel_size=arch_kernel, dropout=arch_dropout)
     try:
         model.load_state_dict(state)  # type: ignore[arg-type]
     except Exception as e:
@@ -396,7 +541,14 @@ async def predict_tcn(equipment_id, recent_window: Optional[np.ndarray] = None, 
         try:
             from src.database.connection import get_async_session
             async with get_async_session() as session:
-                X_all, _ = await load_sequence(session, equipment_id, config.window_size, config.horizon)
+                X_all, _ = await load_sequence(
+                    session,
+                    equipment_id,
+                    infer_window,
+                    config.horizon,
+                    config.target_method,
+                    config.target_percentile,
+                )
             recent_window = X_all[-1:, :, :]
         except Exception as e:
             return {'p_defect_next': 0.0, 'severity_next': 0.0, 'error': 'recent_window_unavailable', 'detail': str(e)}
@@ -408,11 +560,16 @@ async def predict_tcn(equipment_id, recent_window: Optional[np.ndarray] = None, 
                 arr = arr.reshape(1, arr.shape[0], arr.shape[1])
             if arr.ndim != 3:
                 return {'p_defect_next': 0.0, 'severity_next': 0.0, 'error': 'bad_window_shape'}
-            # Обеспечиваем длину окна window_size: берем последние window_size
-            if arr.shape[1] >= config.window_size:
-                arr = arr[:, -config.window_size:, :]
-            else:
-                return {'p_defect_next': 0.0, 'severity_next': 0.0, 'error': 'window_too_short'}
+            # Длина окна: если длиннее сохранённого — обрежем справа; если короче, допускаем (TCN и AdaptiveAvgPool1d поддерживают переменную длину)
+            if arr.shape[1] > infer_window:
+                arr = arr[:, -infer_window:, :]
+            elif arr.shape[1] < 1:
+                return {'p_defect_next': 0.0, 'severity_next': 0.0, 'error': 'window_too_short', 'detail': f'need>=1, got={arr.shape[1]}'}
+            elif arr.shape[1] < infer_window:
+                try:
+                    logger.warning(f"TCN predict: окно короче, чем в обучении (got={arr.shape[1]}, trained={infer_window}) — используем как есть")
+                except Exception:
+                    pass
             recent_window = arr
         except Exception as e:
             return {'p_defect_next': 0.0, 'severity_next': 0.0, 'error': 'window_preprocess_failed', 'detail': str(e)}
@@ -431,6 +588,9 @@ async def predict_tcn(equipment_id, recent_window: Optional[np.ndarray] = None, 
     X_t = torch.tensor(recent_window, dtype=torch.float32, device=device)
     with torch.no_grad():
         out = model(X_t).cpu().numpy()[0]
-    return {'p_defect_next': float(out[0]), 'severity_next': float(out[1])}
+    # Преобразуем логит в вероятность и ограничим severity в [0,1]
+    p = 1.0 / (1.0 + np.exp(-float(out[0])))
+    sev = float(np.clip(out[1], 0.0, 1.0))
+    return {'p_defect_next': float(p), 'severity_next': float(sev)}
 
 __all__ = ['TCNConfig', 'train_tcn', 'predict_tcn']

@@ -33,8 +33,8 @@ def fetch_distribution(anomalies_only: bool = False) -> Dict[str, Any] | None:
         r = requests.get(url, params={"anomalies_only": str(bool(anomalies_only)).lower()}, headers=_auth_headers(), timeout=60)
         if r.status_code == 200:
             return r.json()
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Ошибка загрузки распределения: {e}")
     return None
 
 
@@ -45,8 +45,8 @@ def fetch_labels() -> List[Dict[str, Any]]:
         r = requests.get(url, headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             return r.json() or []
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Ошибка загрузки меток кластеров: {e}")
     return []
 
 

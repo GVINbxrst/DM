@@ -19,6 +19,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 import base64
+import os
 import logging
 
 # Импорты локальных модулей
@@ -46,6 +47,44 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+@st.cache_data(ttl=20, show_spinner=False)
+def api_ping(base_url: str) -> Dict:
+    """Проверка доступности API: /health и / (root). Возвращает словарь статуса."""
+    try:
+        r = requests.get(f"{base_url}/health", timeout=5)
+        if r.status_code == 200 and isinstance(r.json(), dict):
+            data = r.json()
+            return {"ok": data.get("status") == "healthy", "endpoint": "/health", "details": data}
+    except Exception as e:
+        pass
+    try:
+        r = requests.get(f"{base_url}/", timeout=5)
+        if r.status_code == 200 and isinstance(r.json(), dict):
+            data = r.json()
+            return {"ok": data.get("status") == "healthy", "endpoint": "/", "details": data}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    return {"ok": False}
+
+# Глобальный статус API и подсказки по Grafana в сайдбаре
+try:
+    st.sidebar.header("Состояние")
+    ping = api_ping(API_BASE_URL)
+    if ping.get("ok"):
+        st.sidebar.success(f"API доступно ({ping.get('endpoint')})")
+    else:
+        st.sidebar.error("API недоступно")
+    # Подсказки по Grafana
+    st.sidebar.header("Grafana")
+    g_base = os.getenv("GRAFANA_URL", "")
+    g_path = os.getenv("GRAFANA_DASHBOARD_PATH", "/d/diag/overview")
+    st.sidebar.caption("Переменные окружения:")
+    st.sidebar.code(f"GRAFANA_URL={g_base or '<не задано>'}\nGRAFANA_DASHBOARD_PATH={g_path}")
+    if not g_base:
+        st.sidebar.info("Установите GRAFANA_URL для корректной встройки панели (например, http://localhost:3000)")
+except Exception:
+    pass
 
 class AuthManager:
     """Менеджер авторизации через JWT"""
@@ -503,20 +542,92 @@ def main():
     if not user_info:
         st.error("Ошибка получения информации о пользователе")
         return
+
+    # Устанавливаем режим просмотра по умолчанию
+    if 'view' not in st.session_state:
+        st.session_state.view = 'home'
     
     # Боковая панель с информацией о пользователе
     with st.sidebar:
         st.write(f"👤 Пользователь: {user_info.get('username', 'N/A')}")
         st.write(f"🔒 Роль: {user_info.get('role', 'N/A')}")
         
+        # Кнопка возврата на главную
+        if st.button("🏠 Вернуться на главную"):
+            st.session_state.view = 'home'
+            st.session_state.pop('selected_equipment_id', None)
+            st.rerun()
+
         if st.button("Выйти"):
             st.session_state.clear()
             st.rerun()
         
         st.divider()
+
+        # Небольшое окно настроек (popover если доступен, иначе expander)
+        popover = getattr(st, "popover", None)
+        if callable(popover):
+            with st.popover("⚙️ Настройки"):
+                st.write("Быстрые действия")
+                if st.button("Настроить уведомления", key="configure_notifications"):
+                    st.success("Окно настроек уведомлений: функция будет доработана.")
+        else:
+            with st.expander("⚙️ Настройки"):
+                st.write("Быстрые действия")
+                if st.button("Настроить уведомления", key="configure_notifications_exp"):
+                    st.success("Окно настроек уведомлений: функция будет доработана.")
+
+        # Кнопка генерации отчета доступна в режиме детали двигателя
+        if st.session_state.view != 'home' and st.session_state.get('selected_equipment_id'):
+            eq_id = st.session_state.get('selected_equipment_id')
+            st.markdown("---")
+            st.subheader("📄 Отчет")
+            if st.button("Сгенерировать отчет", type="primary", key="generate_report_sidebar"):
+                try:
+                    dm = DataManager(st.session_state.token)
+                    anomalies = dm.get_anomalies(eq_id)
+                    files = dm.get_equipment_files(eq_id)
+                    signal_data, features = {}, {}
+                    if files:
+                        # Берем последний по времени файл
+                        try:
+                            latest = max(files, key=lambda x: x.get('recorded_at', '') or '')
+                        except Exception:
+                            latest = files[0]
+                        raw_id = latest.get('raw_signal_id') or latest.get('id')
+                        if raw_id is not None:
+                            signal_data = dm.get_signal_data(raw_id) or {}
+                            features = dm.get_features(raw_id) or {}
+                    # Для заголовка отчета нужна базовая инфа об оборудовании
+                    # Получим список и найдем запись по id
+                    equipment_list = dm.get_equipment_list()
+                    eq_data = next((e for e in equipment_list if e.get('id') == eq_id), {"id": eq_id, "name": f"Двигатель {eq_id}"})
+
+                    pdf_bytes = ReportGenerator.generate_report(eq_data, anomalies, signal_data, features)
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    file_name = f"diagmod_report_{eq_id}_{ts}.pdf"
+                    # Сохраним в состоянии для отображения кнопки скачивания
+                    st.session_state['last_report_pdf'] = pdf_bytes
+                    st.session_state['last_report_name'] = file_name
+                    st.success("Отчет сформирован")
+                except Exception as e:
+                    st.error(f"Не удалось сформировать отчет: {e}")
+
+            # Если есть последний отчет в состоянии — показать кнопку скачивания
+            if st.session_state.get('last_report_pdf'):
+                st.download_button(
+                    label="📥 Скачать отчет",
+                    data=st.session_state['last_report_pdf'],
+                    file_name=st.session_state.get('last_report_name', 'report.pdf'),
+                    mime='application/pdf',
+                    key="download_report_sidebar"
+                )
     
-    # Основной интерфейс
-    show_dashboard()
+    # Маршрутизация между главной страницей и деталями двигателя
+    if st.session_state.view == 'home':
+        show_home()
+    else:
+        show_dashboard(preselect_equipment_id=st.session_state.get('selected_equipment_id'))
 
 def show_login():
     """Форма авторизации"""
@@ -540,8 +651,8 @@ def show_login():
             else:
                 st.error("Заполните все поля")
 
-def show_dashboard():
-    """Основной дашборд"""
+def show_dashboard(preselect_equipment_id: int | None = None):
+    """Детальная страница двигателя (основной дашборд)"""
     data_manager = DataManager(st.session_state.token)
     
     # Получение списка оборудования
@@ -553,9 +664,18 @@ def show_dashboard():
     
     # Выбор оборудования
     equipment_options = {eq['name']: eq for eq in equipment_list}
+    names = list(equipment_options.keys())
+    # Определяем индекс по умолчанию, если задан preselect_equipment_id
+    default_index = 0
+    if preselect_equipment_id is not None:
+        for i, name in enumerate(names):
+            if equipment_options[name].get('id') == preselect_equipment_id:
+                default_index = i
+                break
     selected_equipment_name = st.selectbox(
         "🔧 Выберите оборудование:",
-        options=list(equipment_options.keys())
+        options=names,
+        index=default_index if names else 0
     )
     
     if not selected_equipment_name:
@@ -563,6 +683,8 @@ def show_dashboard():
     
     selected_equipment = equipment_options[selected_equipment_name]
     equipment_id = selected_equipment['id']
+    # Сохраняем выбранный двигатель в состоянии (для возврата из страниц)
+    st.session_state.selected_equipment_id = equipment_id
     
     # Информация об оборудовании
     col1, col2, col3 = st.columns(3)
@@ -589,6 +711,105 @@ def show_dashboard():
         show_reports(data_manager, equipment_id, selected_equipment)
     with tab5:
         render_trends(API_BASE_URL, st.session_state.token, str(equipment_id))
+
+def _compute_status_label(anomalies_recent: int, severity_max: float | None, has_signals: bool) -> tuple[str, str]:
+    """Возвращает (эмодзи, короткий статус) по данным.
+    Правила:
+    - ⚪ Нет сигналов → "Двигатель выключен / нет сигналов"
+    - 🔴 Есть критические аномалии (severity >= 0.8) → "Критическая ошибка"
+    - 🟠 Есть аномалии за 7д → "Требует внимания"
+    - 🟢 Иначе → "Все ок"
+    """
+    if not has_signals:
+        return "⚪", "Двигатель выключен / нет сигналов"
+    if anomalies_recent > 0 and (severity_max is not None and severity_max >= 0.8):
+        return "🔴", "Критическая ошибка"
+    if anomalies_recent > 0:
+        return "🟠", "Требует внимания"
+    return "🟢", "Все ок"
+
+def show_home():
+    """Главная страница: список двигателей со светофором статуса и переходом по клику."""
+    st.subheader("Главная: доступные двигатели")
+    data_manager = DataManager(st.session_state.token)
+
+    equipment_list = data_manager.get_equipment_list()
+    if not equipment_list:
+        st.warning("Нет доступного оборудования или ошибка загрузки данных")
+        return
+
+    # Подготовим агрегацию по статусам
+    rows = []
+    now = pd.Timestamp.utcnow()
+    horizon = now - pd.Timedelta(days=7)
+
+    for eq in equipment_list:
+        eq_id = eq.get('id')
+        eq_name = eq.get('name', f"Двигатель {eq_id}")
+        eq_model = eq.get('model', '—')
+
+        # Сигналы (для последней даты)
+        files = data_manager.get_equipment_files(eq_id) or []
+        last_ts = None
+        if files:
+            try:
+                df_files = pd.DataFrame(files)
+                if 'recorded_at' in df_files.columns:
+                    ts = pd.to_datetime(df_files['recorded_at'], errors='coerce')
+                    last_ts = ts.max()
+            except Exception:
+                last_ts = None
+
+        has_signals = bool(files)
+
+        # Аномалии за 7 дней
+        anomalies = data_manager.get_anomalies(eq_id) or []
+        anomalies_recent = 0
+        severity_max = None
+        for a in anomalies:
+            try:
+                created = a.get('created_at') or a.get('detected_at')
+                created_ts = pd.to_datetime(created, errors='coerce') if created else None
+                if a.get('is_anomaly') and (created_ts is None or created_ts >= horizon):
+                    anomalies_recent += 1
+                    sev = a.get('predicted_severity')
+                    if isinstance(sev, (int, float)):
+                        severity_max = max(severity_max or 0.0, float(sev))
+            except Exception:
+                pass
+
+        emoji, short = _compute_status_label(anomalies_recent, severity_max, has_signals)
+        rows.append({
+            'ID': eq_id,
+            'Двигатель': eq_name,
+            'Модель': eq_model,
+            'Последний сигнал': last_ts.tz_localize(None).strftime('%Y-%m-%d %H:%M') if isinstance(last_ts, pd.Timestamp) and pd.notnull(last_ts) else '—',
+            'Аномалий (7д)': anomalies_recent,
+            'Статус': f"{emoji} {short}",
+        })
+
+    # Отображаем таблицу
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    st.markdown("### Переход к двигателю")
+    for row in rows:
+        c1, c2, c3, c4, c5, c6 = st.columns([0.12, 0.45, 0.18, 0.15, 0.15, 0.15])
+        with c1:
+            st.write(row['Статус'])
+        with c2:
+            st.write(f"{row['Двигатель']} (ID: {row['ID']})")
+        with c3:
+            st.write(row['Модель'])
+        with c4:
+            st.write(row['Последний сигнал'])
+        with c5:
+            st.write(f"Аномалий: {row['Аномалий (7д)']}")
+        with c6:
+            if st.button("Открыть", key=f"open_{row['ID']}"):
+                st.session_state.selected_equipment_id = row['ID']
+                st.session_state.view = 'detail'
+                st.rerun()
 
 def show_files_overview(data_manager: DataManager, equipment_id: int):
     """Обзор файлов оборудования"""

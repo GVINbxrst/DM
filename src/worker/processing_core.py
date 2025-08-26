@@ -140,13 +140,34 @@ async def process_raw_core(raw_id: str) -> Dict:
                     for i in range(0, min(len(rep_phase)-seg_len, step*8), step):
                         train_segments.append(rep_phase[i:i+seg_len])
                 if train_segments:
+                    import time
+                    start_t = time.time()
                     try:
                         emb_extractor.train_autoencoder(train_segments, epochs=1, batch_size=4)
+                        try:
+                            from src.utils.metrics import observe_histogram, increment_counter
+                            observe_histogram('embedding_duration_seconds', time.time() - start_t, {'stage': 'train'})
+                            increment_counter('worker_embedding_events_total', {'event': 'train_success'})
+                        except Exception:
+                            pass
                     except Exception as te:  # pragma: no cover
                         logger.debug(f"embed train skip: {te}")
+                        try:
+                            from src.utils.metrics import increment_counter
+                            increment_counter('worker_embedding_events_total', {'event': 'train_failed'})
+                        except Exception:
+                            pass
                 # Генерируем embedding
                 try:
+                    import time
+                    s2 = time.time()
                     emb_res = emb_extractor.embed_signal(rep_phase)
+                    try:
+                        from src.utils.metrics import observe_histogram, increment_counter
+                        observe_histogram('embedding_duration_seconds', time.time() - s2, {'stage': 'infer'})
+                        increment_counter('worker_embedding_events_total', {'event': 'infer_success'})
+                    except Exception:
+                        pass
                     # Записываем в extra.embedding для всех новых features (или только первой — здесь всем)
                     feat_res = await session.execute(select(Feature).where(Feature.id.in_(feature_ids)))
                     feat_rows = feat_res.scalars().all()
@@ -157,6 +178,11 @@ async def process_raw_core(raw_id: str) -> Dict:
                     await session.commit()
                 except Exception as ee:  # pragma: no cover
                     logger.debug(f"embed inference skip: {ee}")
+                    try:
+                        from src.utils.metrics import increment_counter
+                        increment_counter('worker_embedding_events_total', {'event': 'infer_failed'})
+                    except Exception:
+                        pass
         except Exception as e_emb:  # pragma: no cover
             logger.debug(f"embedding pipeline skipped: {e_emb}")
 
@@ -171,6 +197,8 @@ async def process_raw_core(raw_id: str) -> Dict:
                 mtype = data.get('model_type')
                 threshold = float(data.get('threshold', 0.7))
                 if mtype == 'stream':
+                    import time
+                    st_ts = time.time()
                     stream_state = models_root / 'stream_state.pkl'
                     if stream_state.exists():
                         state = joblib.load(stream_state)
@@ -207,11 +235,28 @@ async def process_raw_core(raw_id: str) -> Dict:
                                         confidence=float(score),
                                         prediction_details={'online': True, 'threshold': threshold}
                                     ))
+                                    try:
+                                        from src.utils.metrics import increment_counter
+                                        increment_counter('worker_incremental_events_total', {'stage': 'stream', 'result': 'success'})
+                                    except Exception:
+                                        pass
                                 except Exception as se:  # pragma: no cover
                                     logger.debug(f"stream anomaly score error: {se}")
+                                    try:
+                                        from src.utils.metrics import increment_counter
+                                        increment_counter('worker_incremental_events_total', {'stage': 'stream', 'result': 'failed'})
+                                    except Exception:
+                                        pass
                             await session.commit()
+                            try:
+                                from src.utils.metrics import observe_histogram
+                                observe_histogram('incremental_duration_seconds', time.time() - st_ts, {'stage': 'stream'})
+                            except Exception:
+                                pass
                 elif mtype == 'stats':
                     # Онлайн скоринг статистическим baseline (MAD z-score)
+                    import time
+                    st2_ts = time.time()
                     from src.ml.incremental import StatsQuantileBaseline
                     model = StatsQuantileBaseline(z_threshold=threshold)
                     if feature_ids:
@@ -240,16 +285,38 @@ async def process_raw_core(raw_id: str) -> Dict:
                                     confidence=float(score),
                                     prediction_details={'online': True, 'threshold': threshold}
                                 ))
+                                try:
+                                    from src.utils.metrics import increment_counter
+                                    increment_counter('worker_incremental_events_total', {'stage': 'stats', 'result': 'success'})
+                                except Exception:
+                                    pass
                             except Exception as se:  # pragma: no cover
                                 logger.debug(f"stats anomaly score error: {se}")
+                                try:
+                                    from src.utils.metrics import increment_counter
+                                    increment_counter('worker_incremental_events_total', {'stage': 'stats', 'result': 'failed'})
+                                except Exception:
+                                    pass
                         await session.commit()
+                        try:
+                            from src.utils.metrics import observe_histogram
+                            observe_histogram('incremental_duration_seconds', time.time() - st2_ts, {'stage': 'stats'})
+                        except Exception:
+                            pass
         except Exception as inc_e:  # pragma: no cover
             logger.debug(f"incremental scoring skipped: {inc_e}")
+            try:
+                from src.utils.metrics import increment_counter
+                increment_counter('worker_incremental_events_total', {'stage': 'any', 'result': 'skipped'})
+            except Exception:
+                pass
 
         # 4c. Мониторинг дрейфа распределения (ADWIN / PageHinkley) по простой метрике (rms_a) если есть river
         try:
             from src.ml.incremental import StreamDriftMonitor, RIVER_AVAILABLE
             if RIVER_AVAILABLE and feature_ids:
+                import time
+                d_ts = time.time()
                 # Берём первую фичу для мониторинга как пример (можно расширить)
                 feat_res = await session.execute(select(Feature).where(Feature.id.in_(feature_ids)))
                 feat_rows = feat_res.scalars().all()
@@ -260,6 +327,12 @@ async def process_raw_core(raw_id: str) -> Dict:
                         continue
                     drift_results = monitor.update(float(val))
                     for det_name, det_res in drift_results.items():
+                        try:
+                            from src.utils.metrics import increment_counter
+                            drift_flag = 'true' if bool(det_res.get('drift', False)) else 'false'
+                            increment_counter('worker_drift_events_total', {'detector': det_name, 'drift': drift_flag})
+                        except Exception:
+                            pass
                         session.add(StreamStat(
                             equipment_id=raw_signal.equipment_id,
                             raw_id=raw_signal.id,
@@ -271,8 +344,18 @@ async def process_raw_core(raw_id: str) -> Dict:
                             details={k: v for k, v in det_res.items() if k not in {'value', 'drift'}}
                         ))
                 await session.commit()
+                try:
+                    from src.utils.metrics import observe_histogram
+                    observe_histogram('drift_monitor_duration_seconds', time.time() - d_ts, {'metric': 'rms_a'})
+                except Exception:
+                    pass
         except Exception as drift_e:  # pragma: no cover
             logger.debug(f"drift monitor skipped: {drift_e}")
+            try:
+                from src.utils.metrics import increment_counter
+                increment_counter('worker_drift_events_total', {'detector': 'any', 'drift': 'error'})
+            except Exception:
+                pass
 
         raw_signal.meta = (raw_signal.meta or {}) | {
             "validation": validation_summary,

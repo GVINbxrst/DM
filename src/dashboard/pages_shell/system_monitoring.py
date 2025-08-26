@@ -31,8 +31,8 @@ def fetch_equipment() -> List[Dict[str, Any]]:
         r = requests.get(url, headers=_auth_headers(), timeout=20)
         if r.status_code == 200:
             return r.json() or []
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Не удалось получить список оборудования: {e}")
     return []
 
 
@@ -43,8 +43,8 @@ def fetch_signals_total(equipment_id: str) -> int:
         r = requests.get(url, params={"equipment_id": equipment_id, "page": 1, "page_size": 1}, headers=_auth_headers(), timeout=20)
         if r.status_code == 200:
             return int((r.json() or {}).get('total_count', 0))
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Не удалось получить количество сигналов: {e}")
     return 0
 
 
@@ -57,8 +57,8 @@ def fetch_anomalies_total_last_days(equipment_id: str, days: int = 30) -> int:
         r = requests.get(url, params={"start_date": start, "end_date": end, "page": 1, "page_size": 1}, headers=_auth_headers(), timeout=30)
         if r.status_code == 200:
             return int((r.json() or {}).get('total_anomalies', 0))
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Не удалось получить количество аномалий: {e}")
     return 0
 
 
@@ -76,16 +76,16 @@ def fetch_cluster_count() -> int:
             if isinstance(pts, list):
                 uniq = {p.get('cluster_id') for p in pts if 'cluster_id' in p}
                 return len(uniq)
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Не удалось получить распределение кластеров: {e}")
     try:
         r = requests.get(f"{_api()}/admin/clustering/labels", headers=_auth_headers(), timeout=20)
         if r.status_code == 200:
             labels = r.json() or []
             uniq = {row.get('cluster_id') for row in labels}
             return len(uniq)
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Не удалось получить метки кластеров: {e}")
     return 0
 
 
