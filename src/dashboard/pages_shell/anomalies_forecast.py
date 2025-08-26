@@ -173,7 +173,7 @@ def _plot_anomalies(df: pd.DataFrame) -> None:
         return
     fig = px.scatter(df.sort_values('ts'), x='ts', y='confidence', color='model', hover_data=['feature_id', 'severity'])
     fig.update_traces(mode='lines+markers')
-    fig.update_layout(height=380, yaxis_title='Confidence', xaxis_title='Время')
+    fig.update_layout(height=380, yaxis_title='Уверенность', xaxis_title='Время')
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -215,21 +215,21 @@ def _plot_forecast(fc: Dict[str, Any] | None) -> None:
             y_col = df.columns[1]
         else:
             y_col = df.columns[0]
-    fig.add_trace(go.Scatter(x=x, y=df[y_col], mode='lines', name='Forecast'))
+    fig.add_trace(go.Scatter(x=x, y=df[y_col], mode='lines', name='Прогноз'))
     if 'lower_ci' in df.columns and 'upper_ci' in df.columns:
         fig.add_traces([
             go.Scatter(x=x, y=df['upper_ci'], mode='lines', line=dict(width=0), showlegend=False),
-            go.Scatter(x=x, y=df['lower_ci'], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(31,119,180,0.2)', name='95% CI')
+            go.Scatter(x=x, y=df['lower_ci'], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(31,119,180,0.2)', name='95% ДИ')
         ])
     thr = fc.get('threshold')
     if thr is not None:
-        fig.add_hline(y=thr, line_dash='dash', line_color='red', annotation_text='threshold')
+        fig.add_hline(y=thr, line_dash='dash', line_color='red', annotation_text='порог')
     fig.update_layout(height=380, yaxis_title='RMS', xaxis_title='Время')
     st.plotly_chart(fig, use_container_width=True)
 
 
 def render() -> None:
-    st.title("⚠️ Anomalies & Forecast")
+    st.title("⚠️ Аномалии и прогноз")
     st.caption("Детекция аномалий и прогноз тренда с доверительным интервалом")
 
     # 1) Фильтры / Выбор

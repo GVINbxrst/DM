@@ -1,4 +1,4 @@
-"""Страница: System Monitoring
+"""Страница: Системный мониторинг
 
 Функциональность:
 - Встроенная панель Grafana (iframe), также ссылка на отдельное окно.
@@ -108,7 +108,7 @@ def _grafana_url() -> str:
 
 
 def render() -> None:
-    st.title("🖥️ System Monitoring")
+    st.title("🖥️ Системный мониторинг")
     st.caption("Системные метрики и панель Grafana")
 
     # Автообновление каждые 30 секунд
@@ -146,8 +146,8 @@ def render() -> None:
         st.write("Встроенная панель ниже. При проблемах с X-Frame-Options используйте ссылку для открытия в новой вкладке.")
         st.link_button("Открыть в Grafana", url)
         try:
-            from streamlit import components
-            components.v1.iframe(src=url, height=800, scrolling=True)
+            import streamlit.components.v1 as components
+            components.iframe(src=url, height=800, scrolling=True)
         except Exception:
             st.write("Невозможно отобразить iframe. Откройте панель по ссылке выше.")
 

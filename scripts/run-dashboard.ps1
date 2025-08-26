@@ -2,7 +2,7 @@
 # Запуск Streamlit Dashboard
 
 param(
-    [string]$Host = "0.0.0.0",
+    [string]$BindHost = "0.0.0.0",
     [int]$Port = 8501,
     [string]$ApiUrl = "http://localhost:8000",
     [switch]$Help
@@ -12,7 +12,7 @@ if ($Help) {
     Write-Host "DiagMod Streamlit Dashboard" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Параметры:"
-    Write-Host "  -Host <ip>        IP адрес для привязки (по умолчанию: 0.0.0.0)"
+    Write-Host "  -BindHost <ip>    IP адрес для привязки (по умолчанию: 0.0.0.0)"
     Write-Host "  -Port <port>      Порт для прослушивания (по умолчанию: 8501)"
     Write-Host "  -ApiUrl <url>     URL API сервера (по умолчанию: http://localhost:8000)"
     Write-Host "  -Help             Показать эту справку"
@@ -25,13 +25,14 @@ if ($Help) {
 }
 
 Write-Host "📊 Запуск DiagMod Dashboard (Python 3.11)..." -ForegroundColor Green
-Write-Host "🌐 Dashboard будет доступен: http://$Host`:$Port" -ForegroundColor Yellow
+Write-Host "🌐 Dashboard будет доступен: http://$BindHost`:$Port" -ForegroundColor Yellow
 Write-Host "🔗 API сервер: $ApiUrl" -ForegroundColor Yellow
 Write-Host ""
 
 # Устанавливаем переменные окружения для Dashboard
+$env:PYTHONPATH = (Resolve-Path ".").Path
 $env:API_BASE_URL = $ApiUrl
-$env:DASHBOARD_HOST = $Host
+$env:DASHBOARD_HOST = $BindHost
 $env:DASHBOARD_PORT = $Port
 
 # Проверяем активацию виртуального окружения
@@ -60,7 +61,7 @@ try {
 
 # Запускаем Dashboard
 try {
-    streamlit run src/dashboard/shell.py --server.port $Port --server.address $Host --server.headless true --browser.gatherUsageStats false
+    streamlit run src/dashboard/shell.py --server.port $Port --server.address $BindHost --server.headless true --browser.gatherUsageStats false
 } catch {
     Write-Error "Ошибка запуска Dashboard: $_"
     Write-Host "Убедитесь, что:"

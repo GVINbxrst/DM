@@ -104,7 +104,7 @@ def _plot_phases(df: pd.DataFrame, default: List[str] | None = None) -> None:
     }
     for col in sel:
         fig.add_trace(go.Scatter(x=x, y=df[col], mode="lines", name=col, line=dict(color=colors.get(col))))
-    fig.update_layout(height=400, xaxis_title="Sample", yaxis_title="Current (A)", plot_bgcolor="#FFFFFF")
+    fig.update_layout(height=400, xaxis_title="Отсчёт", yaxis_title="Ток (А)", plot_bgcolor="#FFFFFF")
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -151,7 +151,7 @@ def _upload_via_api(csv_bytes: bytes, equipment_id: str | None, sample_rate: int
 
 
 def render() -> None:
-    st.title("📥 Raw Signals & Upload")
+    st.title("📥 Сырые сигналы и загрузка")
     st.caption("Загрузка CSV сигналов формата current_R,current_S,current_T")
 
     # 1) Фильтры / Выбор
@@ -162,7 +162,7 @@ def render() -> None:
             uploaded = st.file_uploader("Выберите CSV-файл", type=["csv"], accept_multiple_files=False)
         with col2:
             sample_rate = st.number_input("Частота дискретизации, Гц", min_value=1000, max_value=100000, value=25600, step=100)
-        equipment_id = st.text_input("Equipment ID (UUID, необязательно)")
+        equipment_id = st.text_input("Идентификатор оборудования (UUID, необязательно)")
         description = st.text_input("Описание (опционально)")
 
     if uploaded is None:

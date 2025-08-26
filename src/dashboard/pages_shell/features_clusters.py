@@ -97,7 +97,7 @@ def _legend_from_labels(labels: List[Dict[str, Any]]) -> Dict[int, str]:
     for row in labels:
         try:
             cid = int(row.get('cluster_id'))
-            name = row.get('defect_id') or row.get('description') or f"cluster {cid}"
+            name = row.get('defect_id') or row.get('description') or f"Кластер {cid}"
             legend[cid] = str(name)
         except Exception:
             continue
@@ -111,7 +111,7 @@ def _export_cluster_csv(df_points: pd.DataFrame, cluster_id: int) -> bytes:
 
 
 def render() -> None:
-    st.title("🧭 Features & Clusters")
+    st.title("🧭 Признаки и кластеры")
     st.caption("Признаки (RMS/FFT/статистики) и кластеры UMAP/HDBSCAN")
 
     # 1) Фильтры / Выбор
@@ -170,7 +170,7 @@ def render() -> None:
         if not cluster_ids:
             st.info("Кластера отсутствуют. Повторите операцию позже.")
         else:
-            cid = st.selectbox("Выберите кластер", cluster_ids, format_func=lambda c: legend_map.get(c, f"Cluster {c}"))
+            cid = st.selectbox("Выберите кластер", cluster_ids, format_func=lambda c: legend_map.get(c, f"Кластер {c}"))
 
             # Подсчёты
             count = None

@@ -41,7 +41,7 @@ def _inject_corporate_style() -> None:
 def main() -> None:
     # Базовая конфигурация страницы
     st.set_page_config(
-        page_title="DiagMod — DiagnosticModel",
+    page_title="DiagMod — Диагностика",
         page_icon="⚙️",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -51,14 +51,14 @@ def main() -> None:
 
     # Боковое меню
     with st.sidebar:
-        st.markdown("### ⚙️ DiagnosticModel")
+        st.markdown("### ⚙️ Диагностическая система")
         choice = option_menu(
             "Навигация",
             [
-                "Raw Signals & Upload",
-                "Features & Clusters",
-                "Anomalies & Forecast",
-                "System Monitoring",
+                "Сырые сигналы и загрузка",
+                "Признаки и кластеры",
+                "Аномалии и прогноз",
+                "Системный мониторинг",
             ],
             icons=[
                 "cloud-upload",
@@ -70,15 +70,15 @@ def main() -> None:
             default_index=0,
         )
 
-    # Маршрутизация на страницы-заглушки
-    if choice == "Raw Signals & Upload":
-        from .pages_shell import raw_upload as page
-    elif choice == "Features & Clusters":
-        from .pages_shell import features_clusters as page
-    elif choice == "Anomalies & Forecast":
-        from .pages_shell import anomalies_forecast as page
+    # Маршрутизация на страницы
+    if choice == "Сырые сигналы и загрузка":
+        from src.dashboard.pages_shell import raw_upload as page
+    elif choice == "Признаки и кластеры":
+        from src.dashboard.pages_shell import features_clusters as page
+    elif choice == "Аномалии и прогноз":
+        from src.dashboard.pages_shell import anomalies_forecast as page
     else:
-        from .pages_shell import system_monitoring as page
+        from src.dashboard.pages_shell import system_monitoring as page
 
     page.render()
 
