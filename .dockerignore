@@ -1,0 +1,50 @@
+# Reduce Docker build context size and avoid recursive copies
+
+# VCS
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.coverage
+.coverage.*
+*.egg-info/
+
+# Environments
+.env
+.venv
+venv/
+ENV/
+
+# Editors/OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Project data (keep containers from uploading big local dirs)
+docker_volumes/
+logs/
+data/
+models/
+notebooks/.ipynb_checkpoints/
+
+# Build artifacts
+dist/
+build/
+
+# Compose files are not needed in image context
+docker-compose*.yml
+
+# Misc
+tmp/
+temp/
+*.tmp
+*.log

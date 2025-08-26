@@ -1,0 +1,20 @@
+[server]
+headless = true
+address = "0.0.0.0"
+port = 8501
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+# Газпромнефть: белый фон, акценты тёмно-синий (#003057) и голубой (#0095D9)
+primaryColor = "#003057"              # основной акцент (кнопки, активные элементы)
+backgroundColor = "#FFFFFF"           # белый фон
+secondaryBackgroundColor = "#F5F8FF"  # светло-голубой для сайдбара
+textColor = "#0B1F35"                 # тёмный цвет текста
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"

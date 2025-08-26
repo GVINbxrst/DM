@@ -1,0 +1,21 @@
+# Dev override: хранит данные сервисов в каталоге проекта
+services:
+  postgres:
+    volumes:
+      - ./docker_data_dev/postgres:/var/lib/postgresql/data
+  redis:
+    volumes:
+      - ./docker_data_dev/redis:/data
+  api:
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./models:/app/models
+  worker:
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./models:/app/models
+  dashboard:
+    volumes:
+      - ./logs:/app/logs

@@ -1,0 +1,6 @@
+{
+  "model_type": "prophet_auto",
+  "version": "v1",
+  "horizon": 24,
+  "notes": "Default config for RMS trend forecasting."
+}

@@ -1,0 +1,8 @@
+# Локальный override: направляет данные на E:\ в папку проекта
+services:
+  postgres:
+    volumes:
+      - ./docker_data/postgres:/var/lib/postgresql/data
+  redis:
+    volumes:
+      - ./docker_data/redis:/data

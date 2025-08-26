@@ -1,0 +1,6 @@
+{
+  "model_type": "stream",
+  "version": "v1",
+  "threshold": 0.7,
+  "notes": "Streaming HalfSpaceTrees. Optional: add stream_state.pkl to warm start."
+}
