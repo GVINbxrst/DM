@@ -49,6 +49,8 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
       target: production
+      args:
+        LIGHT_DEPS: "1"
     volumes:
       - ./data:/app/data
       - ./models:/app/models
@@ -88,6 +90,8 @@ services:
       context: .
       dockerfile: docker/worker/Dockerfile
       target: production
+      args:
+        LIGHT_DEPS: "0"
     volumes:
       - ./data:/app/data
       - ./models:/app/models
@@ -118,6 +122,8 @@ services:
       context: .
       dockerfile: docker/dashboard/Dockerfile
       target: production
+      args:
+        LIGHT_DEPS: "1"
     ports:
       - "8501:8501"
     networks:

@@ -9,7 +9,6 @@ FROM python:3.11-slim as base
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install system dependencies
@@ -31,6 +30,7 @@ WORKDIR /app
 
 # Copy requirements first for better caching (avoid copying pyproject here)
 COPY requirements.txt ./
+COPY requirements-light.txt ./
 COPY requirements-dev.txt ./
 
 # Development stage
@@ -40,7 +40,8 @@ FROM base as development
 # Optional: also install dev-only tools (jupyter) when INSTALL_DEV/INSTALL_JUPYTER are set
 ARG INSTALL_DEV=0
 ARG INSTALL_JUPYTER=0
-# When LIGHT_JUPYTER=1 we skip heavy prod requirements and install only a light Jupyter stack
+# LIGHT_DEPS=1 — ставим облегчённые зависимости (requirements-light.txt)
+ARG LIGHT_DEPS=0
 ARG LIGHT_JUPYTER=0
 RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "$LIGHT_JUPYTER" = "1" ]; then \
@@ -50,7 +51,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
             PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
         fi; \
     else \
-        PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements.txt && \
+        if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+            PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
+        else \
+            PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
+        fi && \
         if [ "$INSTALL_DEV" = "1" ] && [ -f requirements-dev.txt ]; then \
             PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
         fi && \
@@ -76,15 +81,17 @@ CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--re
 FROM base as production
 
 # Install only production dependencies with pip cache
+ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_NO_CACHE_DIR=0 pip install -r requirements.txt
+    if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+        PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
+    else \
+        PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
+    fi
 
 # Copy source code
 COPY --chown=app:app src/ ./src/
 COPY --chown=app:app pyproject.toml ./
-
-# Install package
-RUN pip install --no-cache-dir -e .
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/data /app/models /app/.cache && \

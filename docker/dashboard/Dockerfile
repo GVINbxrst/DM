@@ -9,7 +9,6 @@ FROM python:3.11-slim as base
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install system dependencies
@@ -31,6 +30,7 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt ./
+COPY requirements-light.txt ./
 COPY requirements-dev.txt ./
 
 # Development stage
@@ -38,8 +38,14 @@ FROM base as development
 
 # Install development dependencies with pip cache
 ARG INSTALL_DEV=0
+# LIGHT_DEPS=1 — использовать requirements-light.txt
+ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_NO_CACHE_DIR=0 pip install -r requirements.txt && \
+    if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+        PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
+    else \
+        PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
+    fi && \
     if [ "$INSTALL_DEV" = "1" ] && [ -f requirements-dev.txt ]; then \
         PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
     fi
@@ -61,8 +67,13 @@ CMD ["streamlit", "run", "src/dashboard/main.py", "--server.port=8501", "--serve
 FROM base as production
 
 # Install only production dependencies with pip cache
+ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_NO_CACHE_DIR=0 pip install -r requirements.txt
+    if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+        PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
+    else \
+        PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
+    fi
 
 # Install additional dependencies for Dashboard
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -75,9 +86,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY --chown=app:app src/ ./src/
 COPY --chown=app:app pyproject.toml ./
 COPY --chown=app:app configs/ ./configs/
-
-# Install package
-RUN pip install --no-cache-dir -e .
 
 # Create necessary directories and streamlit config
 RUN mkdir -p /app/logs /app/.streamlit && \

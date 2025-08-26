@@ -10,7 +10,7 @@ from sqlalchemy import select
 from src.api.middleware.auth import require_any_role
 from src.database.connection import db_session
 from src.database.models import ClusterLabel, DefectCatalog
-from src.ml.clustering import build_distribution_report, full_clustering_pipeline, load_cluster_label_dict, semi_supervised_knn
+from src.ml.clustering import build_distribution_report, full_clustering_pipeline, load_cluster_label_dict, semi_supervised_knn, load_embeddings
 from src.ml.data_readiness import collect_readiness_metrics
 from src.worker.tasks import clustering_pipeline
 from src.config.settings import get_settings
@@ -27,15 +27,25 @@ class ClusterLabelPayload(BaseModel):
 
 
 @router.post("/run")
-async def run_clustering(min_cluster_size: int = 10, session: AsyncSession = Depends(db_session), current_user=Depends(require_any_role)):
+async def run_clustering(min_cluster_size: int = 10, anomalies_only: bool | None = None, session: AsyncSession = Depends(db_session), current_user=Depends(require_any_role)):
     """Синхронный запуск пайплайна (debug/admin)."""
-    result = await full_clustering_pipeline(session, min_cluster_size=min_cluster_size)
-    distribution = await build_distribution_report(session)
-    return {
-        'features_clustered': len(result.feature_ids),
-        'clusters_found': int(len(set([c for c in result.labels if c != -1]))),
-        'distribution': distribution
-    }
+    try:
+        result = await full_clustering_pipeline(session, min_cluster_size=min_cluster_size, anomalies_only=anomalies_only)
+        distribution = await build_distribution_report(session, anomalies_only=anomalies_only)
+        return {
+            'features_clustered': len(result.feature_ids),
+            'clusters_found': int(len(set([c for c in result.labels if c != -1]))),
+            'distribution': distribution
+        }
+    except Exception as e:
+        # graceful fallback: вернём текущее распределение, даже если пайплайн не отработал
+        distribution = await build_distribution_report(session, anomalies_only=anomalies_only)
+        return {
+            'features_clustered': 0,
+            'clusters_found': 0,
+            'distribution': distribution,
+            'warning': str(e)[:200]
+        }
 
 
 @router.post("/enqueue")
@@ -46,8 +56,8 @@ async def enqueue_clustering(min_cluster_size: int = 10, current_user=Depends(re
 
 
 @router.get("/distribution")
-async def get_distribution(session: AsyncSession = Depends(db_session), current_user=Depends(require_any_role)):
-    return await build_distribution_report(session)
+async def get_distribution(anomalies_only: bool | None = None, session: AsyncSession = Depends(db_session), current_user=Depends(require_any_role)):
+    return await build_distribution_report(session, anomalies_only=anomalies_only)
 
 @router.get("/summary")
 async def get_clustering_summary(session: AsyncSession = Depends(db_session), current_user=Depends(require_any_role)):
@@ -129,14 +139,18 @@ async def list_labels(session: AsyncSession = Depends(db_session), current_user=
 
 
 @router.post("/train-knn")
-async def train_knn(session: AsyncSession = Depends(db_session), current_user=Depends(require_any_role)):
+async def train_knn(anomalies_only: bool | None = None, session: AsyncSession = Depends(db_session), current_user=Depends(require_any_role)):
     # Подгружаем сохраненную UMAP/кластеры (перезапуск UMAP ради простоты)
-    X, feature_ids = await load_embeddings(session)  # type: ignore
+    X, feature_ids = await load_embeddings(session, anomalies_only=anomalies_only)  # type: ignore
     from src.ml.clustering import reduce_embeddings, cluster_embeddings, load_cluster_label_dict, semi_supervised_knn
     X_low, _ = reduce_embeddings(X)
     labels, _ = cluster_embeddings(X_low)
     label_dict = await load_cluster_label_dict(session)
-    knn = semi_supervised_knn(X_low, labels, label_dict)
+    try:
+        knn = semi_supervised_knn(X_low, labels, label_dict)
+    except ValueError as ve:
+        # Нет размеченных кластеров
+        raise HTTPException(status_code=400, detail=str(ve))
     import joblib, os
     st = get_settings()
     model_dir = st.models_path / 'clustering'

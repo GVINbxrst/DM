@@ -24,61 +24,20 @@ scrape_configs:
   # DiagMod API metrics
   - job_name: 'diagmod-api'
     static_configs:
-  - targets: ['api:8000', 'host.docker.internal:8000']
-    metrics_path: '/metrics'
+      # Для локального запуска без Docker API доступно на хосте
+      - targets: ['host.docker.internal:8000']
+    metrics_path: '/monitoring/metrics'
     scrape_interval: 10s
     scrape_timeout: 5s
     params:
       format: ['prometheus']
 
-  # DiagMod Worker metrics
-  - job_name: 'diagmod-worker'
-    static_configs:
-      - targets: ['worker:8002']
-    metrics_path: '/metrics'
-    scrape_interval: 15s
-    scrape_timeout: 5s
-
-  # PostgreSQL metrics (если используется postgres_exporter)
-  - job_name: 'postgres'
-    static_configs:
-      - targets: ['postgres-exporter:9187']
-    scrape_interval: 30s
-
-  # Redis metrics (если используется redis_exporter)
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis-exporter:9121']
-    scrape_interval: 30s
-
-  # Node Exporter (system metrics)
-  - job_name: 'node'
-    static_configs:
-      - targets: ['node-exporter:9100']
-    scrape_interval: 30s
-
-  # Docker контейнеров
-  - job_name: 'cadvisor'
-    static_configs:
-      - targets: ['cadvisor:8080']
-    scrape_interval: 30s
-
-  # Nginx metrics (если используется nginx-prometheus-exporter)
-  - job_name: 'nginx'
-    static_configs:
-      - targets: ['nginx:9113']
-    scrape_interval: 30s
-
   # Health checks
   - job_name: 'diagmod-health'
     static_configs:
-      - targets: ['api:8000']
+      # Проверка здоровья API на хосте
+      - targets: ['host.docker.internal:8000']
     metrics_path: '/health'
     scrape_interval: 30s
 
-# Конфигурация хранения данных
-storage:
-  tsdb:
-    retention.time: 30d
-    retention.size: 10GB
-    wal-compression: true
+# Параметры хранения настраиваются через флаги контейнера (см. docker-compose)

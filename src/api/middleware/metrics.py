@@ -1,12 +1,12 @@
-"""
-Prometheus метрики и middleware для FastAPI
+"""Prometheus middleware: только наблюдает и инкрементит метрики.
+
+Экспорт/реестр централизованы в src.utils.metrics.
 """
 
 import time
 from typing import Dict, Any, Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from src.utils import metrics as utils_metrics
 
 from src.utils.logger import get_logger
@@ -14,11 +14,7 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class PrometheusMetrics:
-    """Тонкая обертка над utils.metrics для совместимости старого кода."""
-
-    def get_metrics(self) -> bytes:
-        return utils_metrics.get_all_metrics()
+# Экспорт метрик осуществляется в маршруте /metrics через utils.metrics.get_all_metrics
 
 
 class PrometheusMiddleware(BaseHTTPMiddleware):
@@ -116,9 +112,10 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
 # Дополнительные функции для метрик
 def track_anomaly_detection(equipment_type: str, severity: str, model_name: str, duration: float):
     """Отслеживание детекции аномалий"""
+    # Приводим имена лейблов к определению метрики anomalies_detected_total
     utils_metrics.increment_counter(
         'anomalies_detected_total',
-        {'equipment_type': equipment_type, 'severity': severity, 'model_name': model_name}
+        {'equipment_id': equipment_type, 'defect_type': severity, 'model_name': model_name}
     )
     utils_metrics.observe_histogram('anomaly_detection_duration_seconds', duration, {'model_name': model_name, 'equipment_id': equipment_type})
 

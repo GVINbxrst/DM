@@ -35,7 +35,8 @@ from .utils import save_model, load_model
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database.models import Feature, ClusterLabel
+from ..database.models import Feature, ClusterLabel, Prediction
+from ..config.settings import get_settings
 
 
 @dataclass
@@ -62,8 +63,27 @@ def extract_embeddings(feature: Feature) -> Optional[List[float]]:
         return None
 
 
-async def load_embeddings(session: AsyncSession) -> Tuple[np.ndarray, List[str]]:
-    q = await session.execute(select(Feature.id, Feature.extra))
+async def load_embeddings(session: AsyncSession, anomalies_only: Optional[bool] = None) -> Tuple[np.ndarray, List[str]]:
+    """Загрузить эмбеддинги признаков.
+
+    Если anomalies_only=True — берём только те Feature, для которых есть Prediction.anomaly_detected=True.
+    Если None — читаем из настроек CLUSTERING_ANOMALIES_ONLY.
+    """
+    if anomalies_only is None:
+        try:
+            anomalies_only = bool(get_settings().CLUSTERING_ANOMALIES_ONLY)
+        except Exception:
+            anomalies_only = False
+    if anomalies_only:
+        # подзапрос аномальных feature_id по Prediction
+        subq = select(Prediction.feature_id).where(Prediction.anomaly_detected == True).distinct().scalar_subquery()
+        # также учитываем фичи с online_anomaly=True в extra
+        q = await session.execute(
+            select(Feature.id, Feature.extra)
+            .where((Feature.id.in_(subq)) | (Feature.extra['online_anomaly'].astext == 'true'))
+        )
+    else:
+        q = await session.execute(select(Feature.id, Feature.extra))
     rows = q.all()
     feature_ids: List[str] = []
     vectors: List[List[float]] = []
@@ -112,11 +132,24 @@ async def persist_cluster_ids(session: AsyncSession, feature_ids: List[str], lab
     return updated
 
 
-async def build_distribution_report(session: AsyncSession) -> Dict[str, Any]:
+async def build_distribution_report(session: AsyncSession, anomalies_only: Optional[bool] = None) -> Dict[str, Any]:
     from sqlalchemy import func
-    q = await session.execute(
-        select(Feature.cluster_id, func.count(Feature.id)).group_by(Feature.cluster_id)
-    )
+    if anomalies_only is None:
+        try:
+            anomalies_only = bool(get_settings().CLUSTERING_ANOMALIES_ONLY)
+        except Exception:
+            anomalies_only = False
+    if anomalies_only:
+        subq = select(Prediction.feature_id).where(Prediction.anomaly_detected == True).distinct().scalar_subquery()
+        q = await session.execute(
+            select(Feature.cluster_id, func.count(Feature.id))
+            .where((Feature.id.in_(subq)) | (Feature.extra['online_anomaly'].astext == 'true'))
+            .group_by(Feature.cluster_id)
+        )
+    else:
+        q = await session.execute(
+            select(Feature.cluster_id, func.count(Feature.id)).group_by(Feature.cluster_id)
+        )
     rows = q.all()
     total = sum(r[1] for r in rows)
     distribution = []
@@ -149,9 +182,11 @@ def semi_supervised_knn(X_low: np.ndarray, labels: np.ndarray, cluster_label_map
     return knn
 
 
-async def full_clustering_pipeline(session: AsyncSession, min_cluster_size: int = 10, n_components: int = 2) -> ClusteringResult:
+async def full_clustering_pipeline(session: AsyncSession, min_cluster_size: int = 10, n_components: int = 2, anomalies_only: Optional[bool] = None) -> ClusteringResult:
     # Попытка загрузить кеш
-    cached = load_model("clustering_pipeline_cache")
+    # различаем кеш по режиму anomalies_only
+    cache_key = "clustering_pipeline_cache_anom" if anomalies_only else "clustering_pipeline_cache_all"
+    cached = load_model(cache_key)
     if cached:
         try:
             feature_ids = cached["feature_ids"]
@@ -162,9 +197,9 @@ async def full_clustering_pipeline(session: AsyncSession, min_cluster_size: int 
             return ClusteringResult(feature_ids, X, X_low, labels, clusterer)
         except Exception:
             pass
-    X, feature_ids = await load_embeddings(session)
+    X, feature_ids = await load_embeddings(session, anomalies_only=anomalies_only)
     X_low, _ = reduce_embeddings(X, n_components=n_components)
     labels, clusterer = cluster_embeddings(X_low, min_cluster_size=min_cluster_size)
     await persist_cluster_ids(session, feature_ids, labels)
-    save_model({"feature_ids": feature_ids, "X": X, "X_low": X_low, "labels": labels, "clusterer": clusterer}, "clustering_pipeline_cache")
+    save_model({"feature_ids": feature_ids, "X": X, "X_low": X_low, "labels": labels, "clusterer": clusterer}, cache_key)
     return ClusteringResult(feature_ids, X, X_low, labels, clusterer)

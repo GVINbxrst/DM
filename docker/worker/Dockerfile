@@ -9,7 +9,6 @@ FROM python:3.11-slim as base
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     C_FORCE_ROOT=1
 
@@ -36,6 +35,7 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt ./
+COPY requirements-light.txt ./
 COPY requirements-dev.txt ./
 
 # Development stage
@@ -43,9 +43,14 @@ FROM base as development
 
 # Install development dependencies with pip cache
 ARG INSTALL_DEV=0
+ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
     PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 \
-    pip install --progress-bar off --retries 5 --default-timeout=600 -r requirements.txt && \
+    if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+        pip install --progress-bar off --retries 5 --default-timeout=600 -r requirements-light.txt; \
+    else \
+        pip install --progress-bar off --retries 5 --default-timeout=600 -r requirements.txt; \
+    fi && \
     if [ "$INSTALL_DEV" = "1" ] && [ -f requirements-dev.txt ]; then \
         PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 \
         pip install --progress-bar off --retries 5 --default-timeout=600 -r requirements-dev.txt; \
@@ -65,16 +70,18 @@ CMD ["celery", "-A", "src.worker.celery_app", "worker", "--loglevel=info", "--co
 FROM base as production
 
 # Install only production dependencies with pip cache
+ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
     PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 \
-    pip install --progress-bar off --retries 5 --default-timeout=600 -r requirements.txt
+    if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+        pip install --progress-bar off --retries 5 --default-timeout=600 -r requirements-light.txt; \
+    else \
+        pip install --progress-bar off --retries 5 --default-timeout=600 -r requirements.txt; \
+    fi
 
 # Copy source code
 COPY --chown=app:app src/ ./src/
 COPY --chown=app:app pyproject.toml ./
-
-# Install package
-RUN pip install --no-cache-dir -e .
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/data /app/models /app/.cache && \

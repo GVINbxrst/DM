@@ -27,10 +27,10 @@ def _auth_headers() -> Dict[str, str]:
 
 
 @st.cache_data(show_spinner=False, ttl=60)
-def fetch_distribution() -> Dict[str, Any] | None:
+def fetch_distribution(anomalies_only: bool = False) -> Dict[str, Any] | None:
     url = f"{_api()}/admin/clustering/distribution"
     try:
-        r = requests.get(url, headers=_auth_headers(), timeout=60)
+        r = requests.get(url, params={"anomalies_only": str(bool(anomalies_only)).lower()}, headers=_auth_headers(), timeout=60)
         if r.status_code == 200:
             return r.json()
     except Exception:
@@ -118,8 +118,9 @@ def render() -> None:
     with st.container(border=True):
         st.subheader("Фильтры")
         st.caption("Данные загружаются из административных эндпоинтов кластеризации")
+        anomalies_only = st.checkbox("Показывать только аномальные окна", value=False)
 
-    dist = fetch_distribution()
+    dist = fetch_distribution(anomalies_only=anomalies_only)
     labels = fetch_labels()
     if not dist:
         st.info("Кластеризация ещё не готова. Повторите позже или запустите пайплайн из админки.")

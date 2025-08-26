@@ -7,7 +7,11 @@ from uuid import UUID
 
 import numpy as np
 import pandas as pd
-from prophet import Prophet
+# Prophet может быть не установлен (опциональная зависимость). Импортируем при использовании.
+try:
+    from prophet import Prophet  # type: ignore
+except Exception:  # pragma: no cover - не критично при отсутствии extras
+    Prophet = None  # type: ignore
 from sklearn.preprocessing import StandardScaler
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,30 +36,42 @@ MIN_OBSERVATIONS = 50  # Минимальное количество наблю�
 SEASONALITY_PERIOD = 24  # Период сезонности (24 часа)
 
 # ================= Embedding-based Sequence Forecaster (LSTM) =================
-import torch
-import torch.nn as nn
+from typing import Any
+try:
+    import torch
+    import torch.nn as nn
+except Exception:  # pragma: no cover
+    torch = None  # type: ignore
+    nn = None     # type: ignore
 
-class EmbeddingSequenceModel(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int = 64, num_layers: int = 1, dropout: float = 0.1):
-        super().__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True, dropout=dropout if num_layers>1 else 0.0)
-        self.head = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim//2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim//2, 1),
-            nn.Sigmoid()
-        )
+if nn is not None:
+    class EmbeddingSequenceModel(nn.Module):
+        def __init__(self, input_dim: int, hidden_dim: int = 64, num_layers: int = 1, dropout: float = 0.1):
+            super().__init__()
+            self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers=num_layers, batch_first=True, dropout=dropout if num_layers>1 else 0.0)
+            self.head = nn.Sequential(
+                nn.Linear(hidden_dim, hidden_dim//2),
+                nn.ReLU(),
+                nn.Linear(hidden_dim//2, 1),
+                nn.Sigmoid()
+            )
 
-    def forward(self, x):  # x: (B, T, D)
-        out, _ = self.lstm(x)
-        last = out[:, -1, :]
-        return self.head(last)  # (B,1) risk probability
+        def forward(self, x):  # x: (B, T, D)
+            out, _ = self.lstm(x)
+            last = out[:, -1, :]
+            return self.head(last)  # (B,1) risk probability
+else:
+    class EmbeddingSequenceModel:  # type: ignore
+        def __init__(self, *args: Any, **kwargs: Any):  # pragma: no cover
+            raise RuntimeError("torch недоступен: установите extra 'ml-heavy' или пакет torch")
 
 
-async def build_embedding_sequence_dataset(equipment_id: UUID, horizon: int = 5, window: int = 16) -> tuple[torch.Tensor, torch.Tensor, int]:
+async def build_embedding_sequence_dataset(equipment_id: UUID, horizon: int = 5, window: int = 16) -> tuple[Any, Any, int]:
     """Формирует датасет (X,y) из последовательностей embedding'ов Feature.extra['embedding'].
     y = вероятность дефекта через horizon шагов (эвристика: средний rms_mean превышает перцентиль 90).
     """
+    if torch is None:
+        raise RuntimeError("torch недоступен: установите extra 'ml-heavy' или пакет torch")
     async with get_async_session() as session:
         q = select(Feature).join(RawSignal).where(RawSignal.equipment_id == equipment_id).order_by(Feature.window_start.asc())
         res = await session.execute(q)
@@ -97,6 +113,8 @@ async def build_embedding_sequence_dataset(equipment_id: UUID, horizon: int = 5,
 
 async def train_embedding_sequence_model(equipment_id: UUID, horizon: int = 5, window: int = 16, epochs: int = 5) -> dict:
     """Обучает LSTM модель и сохраняет в кеш (если включен)."""
+    if torch is None or nn is None:
+        raise RuntimeError("torch недоступен: установите extra 'ml-heavy' или пакет torch")
     X, y, input_dim = await build_embedding_sequence_dataset(equipment_id, horizon=horizon, window=window)
     model = EmbeddingSequenceModel(input_dim=input_dim)
     device = torch.device('cpu')
@@ -125,6 +143,8 @@ async def predict_sequence_risk(equipment_id: UUID, horizon: int = 5, window: in
     Сначала пытается загрузить LSTM модель из кеша; при отсутствии обучает и сохраняет.
     """
     cache = load_model(f"lstm_seq/{equipment_id}")
+    if torch is None or nn is None:
+        raise RuntimeError("torch недоступен: установите extra 'ml-heavy' или пакет torch")
     model: EmbeddingSequenceModel
     input_dim: int
     if cache is None:
@@ -251,7 +271,8 @@ async def forecast_rms(equipment_id: UUID, n_steps: int = 24, threshold_sigma: f
             forecast_values = fc['yhat'].tolist()
             future_index = future['ds'].tolist()
         else:
-            from prophet import Prophet  # type: ignore
+            if Prophet is None:
+                raise RuntimeError("prophet недоступен: установите extra 'ml-heavy' или пакет prophet")
             m = Prophet(daily_seasonality=True, weekly_seasonality=False, yearly_seasonality=False)
             m.fit(hourly)
             future = m.make_future_dataframe(periods=n_steps, freq='h', include_history=False)
@@ -567,6 +588,8 @@ class ProphetForecaster:
             raise InsufficientDataError(f"Недостаточно данных для Prophet: {len(prophet_df)} < {MIN_OBSERVATIONS}")
 
         try:
+            if Prophet is None:
+                raise ForecastingError("prophet недоступен: установите extra 'ml-heavy' или пакет prophet")
             # Настраиваем Prophet
             self.model = Prophet(
                 daily_seasonality=True,
@@ -604,7 +627,7 @@ class ProphetForecaster:
     def forecast(self, periods: int, freq: str = 'h') -> Dict:
         # Прогноз Prophet
         if self.model is None:
-                raise ForecastingError("Модель не обучена")
+            raise ForecastingError("Модель не обучена")
         
         try:
             # Создаем будущие даты

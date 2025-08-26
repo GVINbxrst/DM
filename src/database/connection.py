@@ -1,15 +1,18 @@
-"""Минимально инвазивная реализация; параметры пула/echo берём из settings."""
+"""Настройка async SQLAlchemy engine и фабрики сессий.
+
+Стандартная схема без скрытого commit/rollback внутри контекста.
+"""
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-import os, sys
+import os
+import sys
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy import text
 
 from src.config.settings import get_settings
-from functools import wraps
 from src.utils.logger import get_logger
 
 settings = get_settings()
@@ -27,13 +30,16 @@ if ('PYTEST_CURRENT_TEST' in os.environ or 'pytest' in sys.modules) and settings
         db_url = 'sqlite+aiosqlite:///./test_db.sqlite'
         logger.info('Заменён sqlite in-memory на файл test_db.sqlite для устойчивости между соединениями')
 
-# Engine согласно контракту. Используем NullPool чтобы избежать зависаний в тестах.
-engine = create_async_engine(
-    db_url,
-    future=True,
+# Engine: включаем pre-ping; для sqlite используем NullPool (устойчиво в тестах)
+engine_kwargs = dict(
     echo=getattr(settings, 'APP_DEBUG', False),
-    poolclass=NullPool,
+    pool_pre_ping=True,
+    future=True,
 )
+if db_url.startswith('sqlite'):
+    engine_kwargs["poolclass"] = NullPool
+
+engine = create_async_engine(db_url, **engine_kwargs)
 
 _SCHEMA_READY = False
 
@@ -63,33 +69,31 @@ async_session_maker = async_sessionmaker(
 
 @asynccontextmanager
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    """Асинхронный контекст для работы с БД с авто commit/rollback."""
+    """Асинхронный контекст для работы с БД без скрытого коммита.
+
+    Коммит/роллбек выполняются вызывающим кодом.
+    """
     await _ensure_schema()
     async with async_session_maker() as session:
-    # UUID coercion monkeypatch removed (handled by UniversalUUID type)
         try:
             yield session
-            await session.commit()
-        except Exception:
+        finally:
             try:
-                await session.rollback()
+                await session.close()
             except Exception:
-                logger.debug("Rollback failed", exc_info=True)
-            raise
+                logger.debug("Session close failed", exc_info=True)
 
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    """FastAPI dependency variant (yield session)"""
+    """FastAPI dependency: async generator, отдаёт сессию без автокоммита."""
     await _ensure_schema()
     async with async_session_maker() as session:
         try:
             yield session
-            await session.commit()
-        except Exception:
+        finally:
             try:
-                await session.rollback()
+                await session.close()
             except Exception:
-                logger.debug("Rollback failed", exc_info=True)
-            raise
+                logger.debug("Session close failed", exc_info=True)
 
 
 async def check_connection() -> bool:

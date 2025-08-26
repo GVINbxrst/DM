@@ -77,10 +77,10 @@ def fetch_forecast(equipment_id: str, steps: int) -> Dict[str, Any] | None:
 
 
 @st.cache_data(show_spinner=False, ttl=60)
-def fetch_distribution() -> Dict[str, Any] | None:
+def fetch_distribution(anomalies_only: bool = False) -> Dict[str, Any] | None:
     url = f"{_api()}/admin/clustering/distribution"
     try:
-        r = requests.get(url, headers=_auth_headers(), timeout=60)
+        r = requests.get(url, params={"anomalies_only": str(bool(anomalies_only)).lower()}, headers=_auth_headers(), timeout=60)
         if r.status_code == 200:
             return r.json()
     except Exception:
@@ -261,6 +261,7 @@ def render() -> None:
         st.subheader("Визуализация")
         # Легенда дефектов (если есть labels)
         with st.expander("Легенда: типы дефектов (если размечены)"):
+            anomalies_only = st.checkbox("Показывать только аномальные окна в распределении кластеров", value=True, key="legend_anom_only")
             labels = fetch_labels()
             if labels:
                 df_lbl = pd.DataFrame(labels)
@@ -275,7 +276,7 @@ def render() -> None:
         # Топ-3 дефекта
         top_def = []
         try:
-            dist = fetch_distribution()
+            dist = fetch_distribution(anomalies_only=st.session_state.get("legend_anom_only", True))
             fmap = _map_feature_to_defect(dist, labels or [])
             if not df_anom.empty:
                 ser = df_anom['feature_id'].map(lambda x: fmap.get(str(x))).dropna()

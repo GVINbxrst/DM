@@ -27,7 +27,12 @@ try:  # pragma: no cover - выполнение при импорте
         warmup_models(['clustering/knn_model'])
 except Exception:  # noqa: E722
     pass
-from src.ml.tcn_forecasting import predict_tcn
+# TCN импортируем с fallback, чтобы не ломать воркер без heavy deps
+try:  # pragma: no cover
+    from src.ml.tcn_forecasting import predict_tcn  # type: ignore
+except Exception:  # pragma: no cover
+    async def predict_tcn(*args, **kwargs):  # type: ignore
+        return {'p_defect_next': 0.0, 'severity_next': 0.0, 'error': 'tcn_unavailable'}
 from src.database.models import ClusterLabel
 from src.database.models import (
     RawSignal, Feature, Equipment, Prediction, Forecast, ProcessingStatus

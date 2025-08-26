@@ -598,6 +598,11 @@ class FeatureExtractor:
                     raw_signal.recorded_at,
                     raw_signal.recorded_at + timedelta(milliseconds=window_duration_ms)
                 )
+                if getattr(self.settings, 'ANOMALIES_ONLY', False):
+                    try:
+                        features['online_anomaly'] = True
+                    except Exception:
+                        pass
 
                 feature_id = await self._save_features_to_db(
                     session, raw_signal_id, features,
@@ -615,6 +620,74 @@ class FeatureExtractor:
                 start_time = raw_signal.recorded_at + timedelta(seconds=start_sample / self.sample_rate)
                 end_time = raw_signal.recorded_at + timedelta(seconds=end_sample / self.sample_rate)
                 windows.append((start_sample, end_sample, start_time, end_time))
+
+            # Если включён режим обработки только аномальных окон – применим лёгкий онлайн‑детектор
+            if getattr(self.settings, 'ANOMALIES_ONLY', False) and len(windows) > 0:
+                self.logger.info(f"ANOMALIES_ONLY=ON: фильтрация окон с детектором '{getattr(self.settings,'ONLINE_DETECTOR','stats')}'")
+                # Выбор детектора
+                detector = None
+                try:
+                    from src.ml.incremental import StreamingHalfSpaceTreesAdapter, StatsQuantileBaseline, RIVER_AVAILABLE  # type: ignore
+                    if getattr(self.settings, 'ONLINE_DETECTOR', 'stats') == 'stream' and RIVER_AVAILABLE:
+                        detector = StreamingHalfSpaceTreesAdapter(threshold=float(getattr(self.settings, 'ANOMALY_THRESHOLD', 0.7)))
+                    else:
+                        detector = StatsQuantileBaseline(z_threshold=float(getattr(self.settings, 'ANOMALY_Z_THRESHOLD', 6.0)))
+                except Exception as det_e:  # pragma: no cover
+                    self.logger.warning(f"Онлайн‑детектор недоступен ({det_e}), fallback на stats baseline")
+                    try:
+                        from src.ml.incremental import StatsQuantileBaseline  # type: ignore
+                        detector = StatsQuantileBaseline(z_threshold=float(getattr(self.settings, 'ANOMALY_Z_THRESHOLD', 6.0)))
+                    except Exception:
+                        detector = None
+
+                def _window_rms_vec(sa: Optional[np.ndarray], sb: Optional[np.ndarray], sc: Optional[np.ndarray], s: int, e: int) -> Dict[str, float]:
+                    def _rms(x: Optional[np.ndarray]) -> Optional[float]:
+                        if x is None:
+                            return None
+                        seg = x[s:e]
+                        if seg.size == 0:
+                            return None
+                        # Игнорируем NaN
+                        arr = np.asarray(seg, dtype=float)
+                        if np.all(np.isnan(arr)):
+                            return None
+                        return float(np.sqrt(np.nanmean(arr * arr)))
+                    return {
+                        'rms_a': _rms(sa),
+                        'rms_b': _rms(sb),
+                        'rms_c': _rms(sc)
+                    }
+
+                warmup = int(getattr(self.settings, 'DETECTOR_WARMUP_WINDOWS', 20) or 0)
+                filtered_windows: list[tuple[int,int,datetime,datetime]] = []
+                kept, skipped = 0, 0
+                if detector is None:
+                    filtered_windows = windows  # не удалось инициализировать детектор – не фильтруем
+                else:
+                    for idx, (samp_s, samp_e, t_s, t_e) in enumerate(windows):
+                        vec = _window_rms_vec(phase_a, phase_b, phase_c, samp_s, samp_e)
+                        # удаляем None, оставляем хотя бы один признак
+                        vec2 = {k: v for k, v in vec.items() if v is not None}
+                        if not vec2:
+                            skipped += 1
+                            continue
+                        try:
+                            score = detector.update(vec2)
+                            is_anom = detector.is_anomaly(score) if idx >= warmup else True  # warmup: всегда берём окно
+                        except Exception:
+                            is_anom = True  # безопасно: берём окно
+                        if is_anom:
+                            filtered_windows.append((samp_s, samp_e, t_s, t_e))
+                            kept += 1
+                        else:
+                            skipped += 1
+                    if not filtered_windows:
+                        # Гарантируем минимум одно окно, чтобы пайплайн не пустел
+                        filtered_windows = [windows[0]]
+                        kept = 1
+                        skipped = max(0, skipped - 1)
+                self.logger.info(f"Отфильтровано окон: оставлено {kept}, пропущено {skipped} из {len(windows)}")
+                windows = filtered_windows
 
             feature_ids: list[UUID] = []
 
@@ -658,6 +731,11 @@ class FeatureExtractor:
                         for fut in as_completed(futures):
                             try:
                                 start_sample_r, end_sample_r, start_time_r, end_time_r, features = fut.result()
+                                if getattr(self.settings, 'ANOMALIES_ONLY', False):
+                                    try:
+                                        features['online_anomaly'] = True
+                                    except Exception:
+                                        pass
                                 feature_id = await self._save_features_to_db(session, raw_signal_id, features, start_time_r, end_time_r)
                                 feature_ids.append(feature_id)
                             except Exception as e:
@@ -673,6 +751,11 @@ class FeatureExtractor:
                     segment_c = phase_c[start_sample:end_sample] if phase_c is not None else None
                     try:
                         features = self.extract_features_from_phases(segment_a, segment_b, segment_c, start_time, end_time)
+                        if getattr(self.settings, 'ANOMALIES_ONLY', False):
+                            try:
+                                features['online_anomaly'] = True
+                            except Exception:
+                                pass
                         feature_id = await self._save_features_to_db(session, raw_signal_id, features, start_time, end_time)
                         feature_ids.append(feature_id)
                     except InsufficientDataError as e:

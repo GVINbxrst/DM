@@ -2,6 +2,7 @@
 import time
 import functools
 from typing import Dict, Any, Callable
+from contextlib import ContextDecorator
 from celery import Celery
 from celery.signals import (
     task_prerun, task_postrun, task_failure, task_success,
@@ -191,69 +192,58 @@ class WorkerMetricsCollector:
         )
 
 
-def track_task_metrics(task_name: str = None):
-    # Декоратор отслеживания метрик задач
+class _TaskMetrics(ContextDecorator):
+    def __init__(self, task_name: str):
+        self.task_name = task_name
+        self._start: float | None = None
+
+    def __enter__(self):
+        self._start = time.time()
+        logger.info(
+            f"🔄 Выполнение задачи {self.task_name}",
+            extra={'event_type': 'task_execution', 'task_name': self.task_name}
+        )
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        duration = (time.time() - self._start) if self._start else 0.0
+        status = 'error' if exc_type else 'success'
+
+        increment_counter('worker_tasks_total', {'task_name': self.task_name, 'status': status})
+        observe_histogram('worker_task_duration_seconds', duration, {'task_name': self.task_name})
+
+        if exc is not None:
+            logger.error(
+                f"❌ Ошибка в задаче {self.task_name}: {exc}",
+                extra={'event_type': 'task_error', 'task_name': self.task_name},
+                exc_info=True,
+            )
+
+        logger.info(
+            f"✅ Задача {self.task_name} завершена за {duration:.2f}s",
+            extra={'event_type': 'task_completed', 'task_name': self.task_name, 'duration_seconds': duration, 'status': status}
+        )
+        # Не подавляем исключение
+        return False
+
+
+def track_task_metrics(task_name: str | None = None):
+    """Возвращает контекст-менеджер или декоратор для трекинга метрик задач.
+
+    Использование:
+      with track_task_metrics('name'): ...
+      @track_task_metrics('name')
+      def task(...): ...
+    """
+    if task_name is not None:
+        return _TaskMetrics(task_name)
+
     def decorator(func: Callable) -> Callable:
+        name = func.__name__
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            start_time = time.time()
-            task_name_resolved = task_name or func.__name__
-            status = 'success'
-
-            try:
-                # Логируем начало выполнения
-                logger.info(
-                    f"🔄 Выполнение задачи {task_name_resolved}",
-                    extra={
-                        'event_type': 'task_execution',
-                        'task_name': task_name_resolved,
-                        'args_count': len(args),
-                        'kwargs_count': len(kwargs)
-                    }
-                )
-
-                result = func(*args, **kwargs)
-                return result
-
-            except Exception as e:
-                status = 'error'
-                logger.error(
-                    f"❌ Ошибка в задаче {task_name_resolved}: {e}",
-                    extra={
-                        'event_type': 'task_error',
-                        'task_name': task_name_resolved,
-                        'error_type': type(e).__name__,
-                        'error_message': str(e)
-                    },
-                    exc_info=True
-                )
-                raise
-
-            finally:
-                duration = time.time() - start_time
-
-                # Обновляем метрики
-                increment_counter(
-                    'worker_tasks_total',
-                    {'task_name': task_name_resolved, 'status': status}
-                )
-
-                observe_histogram(
-                    'worker_task_duration_seconds',
-                    duration,
-                    {'task_name': task_name_resolved}
-                )
-
-                logger.info(
-                    f"✅ Задача {task_name_resolved} завершена за {duration:.2f}s",
-                    extra={
-                        'event_type': 'task_completed',
-                        'task_name': task_name_resolved,
-                        'duration_seconds': duration,
-                        'status': status
-                    }
-                )
-
+            with _TaskMetrics(name):
+                return func(*args, **kwargs)
         return wrapper
     return decorator
 
@@ -277,11 +267,12 @@ def setup_worker_monitoring(celery_app: Celery):
 # Создаем HTTP сервер для метрик Worker
 def create_worker_metrics_server(port: int = 8002):
     # HTTP сервер метрик Worker
-    from prometheus_client import start_http_server, generate_latest
-    from src.utils.metrics import get_all_metrics
+    from prometheus_client import start_http_server
+    from src.utils.metrics import REGISTRY
 
     try:
-        start_http_server(port)
+        # Экспортируем метрики из централизованного REGISTRY
+        start_http_server(port, registry=REGISTRY)
         logger.info(f"📊 HTTP сервер метрик Worker запущен на порту {port}")
         logger.info(f"🔗 Метрики доступны по адресу: http://localhost:{port}/metrics")
     except Exception as e:

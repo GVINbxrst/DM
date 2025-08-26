@@ -80,12 +80,23 @@ class Settings(BaseSettings):
     MODELS_PATH: str = Field(default="./models")
     MODEL_AUTO_RETRAIN: bool = Field(default=True)
     ANOMALY_THRESHOLD: float = Field(default=0.95)
+    # Порог для статистического Z-score (MAD baseline) при онлайн-детекции аномалий
+    ANOMALY_Z_THRESHOLD: float = Field(default=6.0)
+    # Включить режим обработки только аномальных окон
+    ANOMALIES_ONLY: bool = Field(default=False)
+    # Какой онлайн-детектор использовать для фильтрации окон: stats | stream
+    ONLINE_DETECTOR: str = Field(default="stats")
+    # Количество окон для прогрева детектора, в течение которых не делаем отсев
+    DETECTOR_WARMUP_WINDOWS: int = Field(default=20)
+    # Кластеризация только по аномальным окнам (используется в админ-эндпоинтах)
+    CLUSTERING_ANOMALIES_ONLY: bool = Field(default=False)
     # Кеширование моделей
     USE_MODEL_CACHE: bool = Field(default=True)
     # Кеш предсказаний (секунды)
     CACHE_EXPIRE_SECONDS: int = Field(default=300)
 
     # Параметры TCN / sequence forecasting
+    TCN_ENABLED: bool = Field(default=True)
     TCN_WINDOW_SIZE: int = Field(default=32)
     TCN_PREDICTION_HORIZON: int = Field(default=4)
     TCN_CHANNELS: str = Field(default="64,64,64")  # список каналов через запятую
