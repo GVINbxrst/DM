@@ -239,8 +239,8 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--web.console.libraries=/etc/prometheus/console_libraries'
       - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=200h'
-      - '--storage.tsdb.retention.size=50GB'
+      - '--storage.tsdb.retention.time=168h'  # 7 дней
+      - '--storage.tsdb.retention.size=5GB'   # ограничение размера БД метрик
       - '--web.enable-lifecycle'
       - '--web.enable-admin-api'
     volumes:
@@ -257,6 +257,11 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     deploy:
       resources:
         limits:

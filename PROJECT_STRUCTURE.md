@@ -1,212 +1,89 @@
 # Структура проекта токовой диагностики асинхронных двигателей
 
-## 1. Полная иерархия папок и файлов
+## 1. Полная иерархия (актуально для репозитория)
 
 ```
-DiagMod/
+DiagnosticModel/
 ├── README.md
+├── PROJECT_STRUCTURE.md
 ├── pyproject.toml
 ├── requirements.txt
-├── .env.example
-├── .gitignore
+├── requirements-dev.txt
 ├── docker-compose.yml
-├── Dockerfile.api
-├── Dockerfile.worker
-├── Dockerfile.dashboard
+├── docker-compose.dev.yml
 ├── Makefile
 │
-├── src/                           # Основной исходный код
+├── src/
 │   ├── __init__.py
-│   ├── config/                    # Конфигурации
-│   │   ├── __init__.py
-│   │   ├── settings.py           # Основные настройки приложения
-│   │   ├── database.py           # Настройки БД
-│   │   ├── celery_config.py      # Настройки Celery
-│   │   ├── logging_config.py     # Настройки логирования
-│   │   ├── monitoring.py         # Настройки Prometheus/Grafana
-│   │   └── security.py           # JWT, шифрование
-│   │
-│   ├── database/                  # Работа с базой данных
-│   │   ├── __init__.py
-│   │   ├── models.py             # SQLAlchemy модели
-│   │   ├── schemas.py            # Pydantic схемы
-│   │   ├── connection.py         # Подключение к БД
-│   │   └── migrations/           # Alembic миграции
-│   │       ├── versions/
-│   │       ├── env.py
-│   │       ├── script.py.mako
-│   │       └── alembic.ini
-│   │
-│   ├── data_processing/           # Обработка данных
-│   │   ├── __init__.py
-│   │   ├── csv_loader.py         # Загрузка CSV файлов
-│   │   ├── data_validator.py     # Валидация данных
-│   │   ├── feature_extractor.py  # Извлечение признаков
-│   │   ├── signal_processing.py  # Обработка сигналов
-│   │   └── utils.py              # Утилиты обработки
-│   │
-│   ├── ml/                       # Машинное обучение
-│   │   ├── __init__.py
-│   │   ├── anomaly_detection.py  # Модели обнаружения аномалий
-│   │   ├── prediction.py         # Модели прогнозирования
-│   │   ├── feature_engineering.py # Инженерия признаков
-│   │   ├── model_training.py     # Обучение моделей
-│   │   ├── model_evaluation.py   # Оценка моделей
-│   │   └── model_registry.py     # Реестр моделей
-│   │
-│   ├── api/                      # FastAPI приложение
-│   │   ├── __init__.py
-│   │   ├── main.py              # Основное FastAPI приложение
-│   │   ├── dependencies.py      # Зависимости API
-│   │   ├── middleware.py        # Middleware (аутентификация, CORS)
-│   │   └── routes/              # API роуты
-│   │       ├── __init__.py
-│   │       ├── auth.py          # Аутентификация
-│   │       ├── data.py          # Работа с данными
-│   │       ├── models.py        # Управление моделями
-│   │       ├── diagnostics.py   # Диагностика двигателей
-│   │       └── monitoring.py    # Мониторинг системы
-│   │
-│   ├── worker/                   # Celery задачи
-│   │   ├── __init__.py
-│   │   ├── celery_app.py        # Celery приложение
-│   │   ├── tasks/               # Задачи
-│   │   │   ├── __init__.py
-│   │   │   ├── data_tasks.py    # Задачи обработки данных
-│   │   │   ├── ml_tasks.py      # Задачи ML
-│   │   │   └── monitoring_tasks.py # Задачи мониторинга
-│   │   └── utils.py             # Утилиты worker
-│   │
-│   ├── dashboard/               # Streamlit дашборд
-│   │   ├── __init__.py
-│   │   ├── main.py             # Основное приложение Streamlit
-│   │   ├── pages/              # Страницы дашборда
-│   │   │   ├── __init__.py
-│   │   │   ├── data_overview.py # Обзор данных
-│   │   │   ├── diagnostics.py   # Диагностика
-│   │   │   ├── monitoring.py    # Мониторинг
-│   │   │   └── admin.py         # Администрирование
-│   │   ├── components/          # Компоненты UI
-│   │   │   ├── __init__.py
-│   │   │   ├── charts.py        # Графики
-│   │   │   ├── tables.py        # Таблицы
-│   │   │   └── widgets.py       # Виджеты
-│   │   └── utils.py            # Утилиты дашборда
-│   │
-│   └── utils/                   # Общие утилиты
-│       ├── __init__.py
-│       ├── logger.py           # Логирование
-│       ├── security.py         # Безопасность
-│       ├── exceptions.py       # Исключения
-│       └── helpers.py          # Вспомогательные функции
-│
-├── data/                        # Директория данных
-│   ├── raw/                    # Сырые CSV файлы
-│   ├── processed/              # Обработанные данные
-│   ├── features/               # Извлеченные признаки
-│   └── exports/                # Экспорты данных
-│
-├── models/                      # Сохраненные ML модели
-│   ├── anomaly_detection/      # Модели обнаружения аномалий
-│   │   ├── v1.0.0/
-│   │   │   ├── model.pkl
-│   │   │   ├── scaler.pkl
-│   │   │   ├── metadata.json
-│   │   │   └── config.yaml
-│   │   └── latest/             # Симлинк на последнюю версию
-│   │
-│   ├── prediction/             # Модели прогнозирования
-│   │   ├── v1.0.0/
-│   │   │   ├── model.pkl
-│   │   │   ├── scaler.pkl
-│   │   │   ├── metadata.json
-│   │   │   └── config.yaml
-│   │   └── latest/
-│   │
-│   └── registry.json           # Реестр всех моделей
-│
-├── sql/                        # SQL схемы и скрипты
-│   ├── schema/                 # Схемы БД
-│   │   ├── 001_initial.sql
-│   │   ├── 002_motor_data.sql
-│   │   ├── 003_features.sql
-│   │   └── 004_predictions.sql
-│   ├── procedures/             # Хранимые процедуры
-│   ├── views/                  # Представления
-│   └── seed/                   # Начальные данные
-│
-├── scripts/                    # Скрипты автоматизации
-│   ├── setup_database.py      # Настройка БД
-│   ├── load_csv_data.py       # Загрузка CSV данных
-│   ├── train_models.py        # Обучение моделей
-│   ├── backup_data.py         # Резервное копирование
-│   └── monitoring_setup.py    # Настройка мониторинга
-│
-├── configs/                    # Конфигурационные файлы
-│   ├── development.env         # Конфиг разработки
-│   ├── production.env          # Конфиг продакшена
-│   ├── logging.yaml           # Конфиг логирования
-│   ├── prometheus.yml         # Конфиг Prometheus
-│   ├── grafana/               # Конфиги Grafana
-│   │   ├── dashboards/
-│   │   └── datasources/
-│   └── nginx/                 # Конфиги Nginx
-│       └── nginx.conf
-│
-├── docker/                     # Docker файлы
 │   ├── api/
-│   │   └── Dockerfile
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │   ├── routes/            # endpoints (auth, signals, anomalies, monitoring, ...)
+│   │   └── middleware/
+│   ├── config/
+│   │   ├── settings.py
+│   │   └── logging.py
+│   ├── database/
+│   │   ├── connection.py
+│   │   └── models.py
+│   ├── data_processing/
+│   │   ├── csv_loader.py
+│   │   ├── data_validator.py
+│   │   └── feature_extraction.py
+│   ├── ml/
+│   │   ├── forecasting.py
+│   │   ├── tcn_forecasting.py
+│   │   ├── clustering.py
+│   │   ├── data_readiness.py
+│   │   └── utils.py
 │   ├── worker/
-│   │   └── Dockerfile
-│   ├── dashboard/
-│   │   └── Dockerfile
+│   │   ├── tasks.py
+│   │   ├── tasks_logic.py
+│   │   └── processing_core.py
+│   └── utils/
+│       ├── logger.py
+│       ├── metrics.py
+│       ├── feature_store.py
+│       └── prediction_cache.py
+│
+├── alembic/
+│   ├── env.py
+│   └── versions/
+│
+├── sql/
+│   ├── schema/
+│   ├── procedures/
+│   └── views/
+│
+├── docker/
+│   ├── api/Dockerfile
+│   ├── worker/Dockerfile
+│   ├── dashboard/Dockerfile
+│   └── jupyter/Dockerfile
+│
+├── configs/
+│   ├── nginx/
+│   ├── grafana/
+│   ├── prometheus/
 │   ├── postgres/
-│   │   ├── Dockerfile
-│   │   └── init.sql
 │   └── redis/
-│       └── Dockerfile
 │
-├── tests/                      # Тесты
-│   ├── __init__.py
-│   ├── conftest.py            # Конфигурация pytest
-│   ├── unit/                  # Юнит-тесты
-│   │   ├── test_data_processing.py
-│   │   ├── test_ml.py
-│   │   ├── test_api.py
-│   │   └── test_worker.py
-│   ├── integration/           # Интеграционные тесты
-│   │   ├── test_api_integration.py
-│   │   └── test_database.py
-│   └── fixtures/              # Тестовые данные
-│       └── sample_data.csv
-│
-├── docs/                       # Документация
-│   ├── api/                   # API документация
-│   ├── deployment/            # Документация по развертыванию
-│   ├── user_guide/            # Руководство пользователя
-│   ├── architecture.md        # Архитектура системы
-│   ├── data_format.md         # Формат данных
-│   └── ml_models.md           # Описание ML моделей
-│
-└── monitoring/                 # Мониторинг и метрики
-    ├── prometheus/
-    │   └── rules/
-    ├── grafana/
-    │   └── dashboards/
-    └── alerts/
+├── data/
+├── models/
+├── scripts/
+└── tests/
 ```
 
 ## 2. Назначение папок и файлов
 
-### src/ - Основной исходный код
-- **config/**: Централизованные настройки всех компонентов
-- **database/**: Модели данных, схемы, подключения к БД
-- **data_processing/**: Обработка CSV, валидация, извлечение признаков
-- **ml/**: Все ML компоненты - модели, обучение, оценка
-- **api/**: FastAPI приложение с роутами
-- **worker/**: Celery задачи для фоновой обработки
-- **dashboard/**: Streamlit интерфейс
-- **utils/**: Общие утилиты для всех модулей
+### src/
+- api: приложение FastAPI (`main.py`, `routes/*`, middleware, schemas)
+- worker: Celery и задачи обработки/ML
+- dashboard: Streamlit UI
+- ml: прогнозы (Prophet/sequence/TCN), кластеризация, утилиты
+- data_processing: `csv_loader.py`, валидация и извлечение признаков
+- database: подключение и модели SQLAlchemy
+- utils: логирование, метрики, кеширование, feature store
 
 ### data/ - Данные
 - **raw/**: Исходные CSV файлы по двигателям
@@ -214,10 +91,8 @@ DiagMod/
 - **features/**: Извлеченные признаки для ML
 - **exports/**: Экспорты для анализа
 
-### models/ - ML модели
-- Версионирование моделей по семантическому версионированию
-- Каждая версия содержит: модель, скейлер, метаданные, конфиг
-- **latest/**: Симлинки на актуальные версии
+### models/
+- Хранилище моделей: `prophet_rms/`, `tcn/`, `anomaly_detection/` и манифесты (см. README)
 
 ### sql/ - База данных
 - **schema/**: DDL скрипты создания таблиц
@@ -236,10 +111,9 @@ DiagMod/
 - `src/database/models.py` - SQLAlchemy модели
 - `src/database/migrations/` - Alembic миграции
 
-### Скрипты загрузки CSV
-- `src/data_processing/csv_loader.py` - основной модуль
-- `scripts/load_csv_data.py` - CLI скрипт
-- `src/worker/tasks/data_tasks.py` - асинхронные задачи
+### Загрузка CSV
+- `src/data_processing/csv_loader.py` — основной модуль
+- Docker сервис `loader` (см. `docker-compose.dev.yml`) — разовые загрузки локальных CSV
 
 ### Извлечение признаков
 - `src/data_processing/feature_extractor.py` - FFT, RMS, kurtosis, skewness
@@ -253,26 +127,19 @@ DiagMod/
 - `models/` - хранение обученных моделей
 
 ### API и роуты
-- `src/api/main.py` - FastAPI приложение
-- `src/api/routes/` - группировка роутов по функциональности
-- `src/api/middleware.py` - аутентификация, CORS, логирование
+- `src/api/main.py` — FastAPI приложение, `/health`, регистрация роутов
+- `src/api/routes/` — `signals.py`, `upload.py`, `anomalies.py`, `auth.py`, `monitoring.py`, `admin_*`
 
 ### Фоновые задачи Celery
-- `src/worker/celery_app.py` - настройка Celery
-- `src/worker/tasks/` - задачи по категориям
-- Redis как брокер сообщений
+- Redis — брокер, результаты в Redis (см. compose)
+- Worker запускается из Docker (`docker/worker/Dockerfile`) или локально (Makefile)
 
 ### Дашборд Streamlit
-- `src/dashboard/main.py` - мультистраничное приложение
-- `src/dashboard/pages/` - отдельные страницы
-- `src/dashboard/components/` - переиспользуемые компоненты
+- `src/dashboard/main.py`, `pages/`, компоненты; использует API
 
 ### Конфиги
-- `src/config/` - Python модули конфигурации
-- `configs/` - файлы конфигурации (YAML, ENV)
-- `src/config/logging_config.py` - настройки логирования
-- `configs/prometheus.yml` - метрики Prometheus
-- `src/config/security.py` - JWT, шифрование
+- Python-конфиги: `src/config/*`
+- Файлы: `configs/*` (nginx, grafana, prometheus, postgres, redis)
 
 ## 4. Взаимодействие модулей
 
@@ -304,31 +171,34 @@ CSV Files → Data Processing → Database → Feature Extraction → ML Models
 ## 5. Запуск через Docker
 
 ```yaml
-# docker-compose.yml
+# docker-compose.dev.yml (основное для разработки)
 services:
-  postgres:    # База данных
-  redis:       # Брокер сообщений и кеш
-  api:         # FastAPI приложение
-  worker:      # Celery worker
-  dashboard:   # Streamlit дашборд
-  nginx:       # Reverse proxy
-  prometheus:  # Метрики
-  grafana:     # Мониторинг
+  postgres:
+  redis:
+  api:
+  worker:
+  dashboard:
+  prometheus:
+  grafana:
+  jupyter:
+  loader:   # для разовых загрузок CSV
 ```
 
-**Последовательность запуска:**
-1. `docker-compose up postgres redis` - инфраструктура
-2. `docker-compose up api worker` - основные сервисы  
-3. `docker-compose up dashboard nginx` - фронтенд
-4. `docker-compose up prometheus grafana` - мониторинг
+**Быстрый запуск (dev):**
+1. `docker compose -f docker-compose.dev.yml up -d postgres redis`
+2. `docker compose -f docker-compose.dev.yml up -d api worker dashboard`
+3. (опц.) `docker compose -f docker-compose.dev.yml up -d prometheus grafana`
 
-**Команды управления:**
+Полезные цели Makefile:
 ```bash
-make build     # Сборка всех образов
-make up        # Запуск всех сервисов
-make migrate   # Применение миграций
-make seed      # Загрузка тестовых данных
-make test      # Запуск тестов
+make docker-build   # сборка образов
+make docker-up      # запуск по docker-compose.yml
+make db-upgrade     # alembic upgrade head
+make init-db        # скриптовая инициализация
+make dev-api        # uvicorn --reload
+make dev-worker     # celery worker
+make dev-dashboard  # streamlit
+make test           # pytest с покрытием
 ```
 
 ## 6. Хранение и именование моделей
@@ -373,50 +243,16 @@ models/
 
 ## 7. Зависимости
 
-### requirements.txt (основные)
-```
-# Web Framework
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-streamlit==1.28.1
+### Зависимости
 
-# Database
-sqlalchemy[asyncio]==2.0.23
-asyncpg==0.29.0
-alembic==1.12.1
-psycopg2-binary==2.9.9
-
-# Queue
-celery[redis]==5.3.4
-redis==5.0.1
-
-# ML & Data Science
-numpy==1.24.3
-scipy==1.11.4
-pandas==2.1.3
-scikit-learn==1.3.2
-xgboost==2.0.2
-statsmodels==0.14.0
-prophet==1.1.5
-
-# Signal Processing
-librosa==0.10.1
-pywavelets==1.4.1
-
-# Monitoring
-prometheus-client==0.19.0
-structlog==23.2.0
-
-# Security
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-multipart==0.0.6
-
-# Utilities
-pydantic==2.5.0
-python-dotenv==1.0.0
-pyyaml==6.0.1
-```
+Основные пакеты смотрите в `pyproject.toml` и `requirements*.txt`. Ключевые группы:
+- Web/API: fastapi, uvicorn, streamlit, pydantic, pydantic-settings
+- БД: sqlalchemy[asyncio], asyncpg, alembic, psycopg2-binary, aiosqlite
+- Очереди/кеш: celery[redis], redis
+- ML/DS: numpy, scipy, pandas, scikit-learn, statsmodels (+ extras: prophet, xgboost, torch и др.)
+- Сигналы: librosa, pywavelets
+- Мониторинг: prometheus-client, structlog
+- Security: python-jose[cryptography], passlib[bcrypt]
 
 ### pyproject.toml (современный подход)
 ```toml

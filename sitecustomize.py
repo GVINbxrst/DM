@@ -1,12 +1,4 @@
-"""Test environment compatibility shims.
 
-Currently retained:
- - httpx.AsyncClient(app=...) backward compatibility for tests using deprecated shortcut.
-
-Removed (now handled by UniversalUUID type in models):
- - UUID coercion patches for SQLAlchemy (bind processors, session.get, engine listeners).
-These were redundant after introducing `UniversalUUID` TypeDecorator and could mask real issues.
-"""
 from __future__ import annotations
 
 import inspect
