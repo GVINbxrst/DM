@@ -151,8 +151,8 @@ def _upload_via_api(csv_bytes: bytes, equipment_id: str | None, sample_rate: int
 
 
 def render() -> None:
-    st.title("📥 Сырые сигналы и загрузка")
-    st.caption("Загрузка CSV сигналов формата current_R,current_S,current_T")
+    st.title("📥 Загрузка исходных данных (для разработки)")
+    st.caption("CSV формата current_R,current_S,current_T — предпросмотр, графики и отправка в API")
 
     # 1) Фильтры / Выбор
     with st.container(border=True):

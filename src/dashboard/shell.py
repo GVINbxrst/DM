@@ -41,7 +41,7 @@ def _inject_corporate_style() -> None:
 
 def main() -> None:
     st.set_page_config(
-        page_title="DiagMod — Диагностика",
+        page_title="Умный мониторинг",
         page_icon="⚙️",
         layout="wide",
         initial_sidebar_state="expanded",
@@ -49,21 +49,25 @@ def main() -> None:
 
     _inject_corporate_style()
 
+    # Единый заголовок приложения (шапка)
+    st.markdown("## 🧠 Умный мониторинг")
+
     # Боковое меню
     with st.sidebar:
         st.markdown("### ⚙️ Диагностическая система")
+        st.caption("Сайдбар включён для демо. В продуктиве на главной странице будет скрыт.")
         pages = [
-            # "Домашняя",  # временно отключено из-за некорректного отображения
-            "Сырые сигналы и загрузка",
-            "Признаки и кластеры",
+            "Главная",
+            "Загрузка исходных данных (для разработки)",
+            "Признаки и группы (для анализа модели ИИ)",
             "Аномалии и прогноз",
-            "Системный мониторинг",
+            "Состояние оборудования",
         ]
         if option_menu is not None:
             choice = option_menu(
                 "Навигация",
                 pages,
-                icons=["cloud-upload", "diagram-3", "exclamation-triangle", "activity"],
+                icons=["house", "cloud-upload", "diagram-3", "exclamation-triangle", "activity"],
                 menu_icon="menu-button-wide",
                 default_index=0,
             )
@@ -71,10 +75,17 @@ def main() -> None:
             st.info("Упрощённое меню без streamlit_option_menu", icon="ℹ️")
             choice = st.radio("Навигация", pages, index=0)
 
+    # Программная навигация из страниц (через session_state.navigate_to)
+    nav_target = st.session_state.pop("navigate_to", None) if isinstance(st.session_state, dict) else None
+    if nav_target in pages:
+        choice = nav_target
+
     # Маршрутизация
-    if choice == "Сырые сигналы и загрузка":
+    if choice == "Главная":
+        from dashboard.pages_shell import home as page
+    elif choice == "Загрузка исходных данных (для разработки)":
         from dashboard.pages_shell import raw_upload as page
-    elif choice == "Признаки и кластеры":
+    elif choice == "Признаки и группы (для анализа модели ИИ)":
         from dashboard.pages_shell import features_clusters as page
     elif choice == "Аномалии и прогноз":
         from dashboard.pages_shell import anomalies_forecast as page

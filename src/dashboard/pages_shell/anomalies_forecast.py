@@ -18,6 +18,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
 import requests
+from dashboard.utils_report import build_demo_pdf_report
 
 
 def _api() -> str:
@@ -305,4 +306,23 @@ def render() -> None:
             out['ts'] = out['ts'].astype(str)
             csv_bytes = out.to_csv(index=False).encode('utf-8')
             st.download_button("Экспорт аномалий (CSV)", data=csv_bytes, file_name="anomalies.csv", mime="text/csv", type="primary")
+
+        # Кнопка сформировать отчёт, только если пришли с Главной и выбран двигатель
+        if isinstance(st.session_state, dict) and st.session_state.get("came_from_home") and equipment_id:
+            eq_name = st.session_state.get("selected_equipment_name") or str(equipment_id)
+            demo_status = (st.session_state.get("selected_equipment_status") or "ok").lower()
+            pdf_bytes = None
+            if st.button("Сформировать отчёт"):
+                try:
+                    pdf_bytes = build_demo_pdf_report(str(eq_name), demo_status if demo_status in {"ok","warn","crit"} else "ok")
+                except Exception as e:
+                    st.error(f"Не удалось сформировать отчёт: {e}")
+            if pdf_bytes:
+                st.download_button(
+                    label="Скачать отчёт (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"report_{equipment_id}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                )
 
