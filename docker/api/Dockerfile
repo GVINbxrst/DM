@@ -30,8 +30,9 @@ RUN groupadd --gid 1000 app && \
 WORKDIR /app
 
 # Copy requirements first for better caching (avoid copying pyproject here)
+COPY requirements-base.txt ./
+COPY requirements-ml.txt ./
 COPY requirements.txt ./
-COPY requirements-light.txt ./
 COPY requirements-dev.txt ./
 
 # Development stage
@@ -41,29 +42,26 @@ FROM base as development
 # Optional: also install dev-only tools (jupyter) when INSTALL_DEV/INSTALL_JUPYTER are set
 ARG INSTALL_DEV=0
 ARG INSTALL_JUPYTER=0
-# LIGHT_DEPS=1 — ставим облегчённые зависимости (requirements-light.txt)
 ARG LIGHT_DEPS=0
 ARG LIGHT_JUPYTER=0
+# Подготавливаем wheelhouse для кеша колес
 RUN --mount=type=cache,target=/root/.cache/pip \
-    sh -c "if [ \"$LIGHT_JUPYTER\" = \"1\" ]; then \
-        PIP_NO_CACHE_DIR=0 pip install --upgrade pip setuptools wheel && \
-        PIP_NO_CACHE_DIR=0 pip install jupyterlab ipykernel numpy pandas matplotlib seaborn; \
-        if [ -f requirements-dev.txt ] && [ \"$INSTALL_DEV\" = \"1\" ]; then \
-            PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
-        fi; \
-    else \
-        if [ -f requirements-light.txt ] && [ \"$LIGHT_DEPS\" = \"1\" ]; then \
-            PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
-        else \
-            PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
-        fi; \
-        if [ -f requirements-dev.txt ] && [ \"$INSTALL_DEV\" = \"1\" ]; then \
-            PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
-        fi; \
-        if [ \"$INSTALL_JUPYTER\" = \"1\" ]; then \
-            PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install jupyterlab; \
-        fi; \
-    fi"
+    --mount=type=cache,target=/app/.wheelhouse \
+    sh -c "\
+    python -m pip install --upgrade pip setuptools wheel && \
+    if [ -f requirements-base.txt ]; then \
+        pip wheel -r requirements-base.txt -w /app/.wheelhouse || true; \
+    fi; \
+    if [ \"$LIGHT_DEPS\" != \"1\" ] && [ -f requirements-ml.txt ]; then \
+        pip wheel -r requirements-ml.txt -w /app/.wheelhouse || true; \
+    fi; \
+    if [ \"$LIGHT_JUPYTER\" = \"1\" ]; then \
+        pip wheel jupyterlab ipykernel numpy pandas matplotlib seaborn -w /app/.wheelhouse || true; \
+    fi; \
+    pip install --no-index --find-links=/app/.wheelhouse -r requirements-base.txt && \
+    if [ \"$LIGHT_DEPS\" != \"1\" ]; then pip install --no-index --find-links=/app/.wheelhouse -r requirements-ml.txt; fi && \
+    if [ -f requirements-dev.txt ] && [ \"$INSTALL_DEV\" = \"1\" ]; then pip install --no-index --find-links=/app/.wheelhouse -r requirements-dev.txt; fi && \
+    if [ \"$INSTALL_JUPYTER\" = \"1\" ]; then pip install --no-index --find-links=/app/.wheelhouse jupyterlab; fi"
 
 # Copy only sources needed for dev runtime
 COPY --chown=app:app src/ ./src/
@@ -84,11 +82,13 @@ FROM base as production
 # Install only production dependencies with pip cache (robust against CRLF)
 ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    sh -c "if [ \"$LIGHT_DEPS\" = \"1\" ] && [ -f requirements-light.txt ]; then \
-        PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
-    else \
-        PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
-    fi"
+    --mount=type=cache,target=/app/.wheelhouse \
+    sh -c "\
+    python -m pip install --upgrade pip setuptools wheel && \
+    pip wheel -r requirements-base.txt -w /app/.wheelhouse || true; \
+    if [ \"$LIGHT_DEPS\" != \"1\" ]; then pip wheel -r requirements-ml.txt -w /app/.wheelhouse || true; fi; \
+    pip install --no-index --find-links=/app/.wheelhouse -r requirements-base.txt && \
+    if [ \"$LIGHT_DEPS\" != \"1\" ]; then pip install --no-index --find-links=/app/.wheelhouse -r requirements-ml.txt; fi"
 
 # Copy source code
 COPY --chown=app:app src/ ./src/

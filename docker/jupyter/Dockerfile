@@ -14,11 +14,15 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY requirements-light.txt ./
+COPY requirements-base.txt ./
+COPY requirements-ml.txt ./
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip setuptools wheel && \
-    pip install -r requirements-light.txt && \
-    pip install jupyterlab ipykernel
+    --mount=type=cache,target=/app/.wheelhouse \
+    sh -c "python -m pip install --upgrade pip setuptools wheel && \
+    pip wheel -r requirements-base.txt -w /app/.wheelhouse || true; \
+    pip install --no-index --find-links=/app/.wheelhouse -r requirements-base.txt && \
+    pip install jupyterlab ipykernel && \
+    pip install --no-index --find-links=/app/.wheelhouse -r requirements-ml.txt || true"
 
 COPY --chown=root:root src/ ./src/
 COPY --chown=root:root pyproject.toml ./

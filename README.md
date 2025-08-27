@@ -145,11 +145,43 @@ current_R,current_S,current_T
 
 ## Разработка
 
-Установка зависимостей:
+Установка зависимостей (варианты):
 
-```bash
+- Лёгкая (без тяжёлого ML) — для API/дашборда и базовой аналитики:
+
+```powershell
+# Внутри активированного venv
+pip install -r requirements-base.txt
+```
+
+- Полная (база + ML стек) — для обучения моделей, аномалий, прогноза:
+
+```powershell
+# Внутри активированного venv
+pip install -r requirements.txt    # это эквивалент base + ml
+```
+
+- Dev‑окружение (дополнительно инструменты разработки и тесты):
+
+```powershell
+# Внутри активированного venv
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+
+Сокращения через Makefile:
+
+```powershell
+# Полная установка (base + ml)
+make install
+
+# Полная + dev инструменты
 make install-dev
 ```
+
+Примечание для Docker:
+- В dev-композе образы собираются в лёгкой конфигурации (без ML) с аргументом сборки LIGHT_DEPS=1 для api/worker/dashboard.
+- Чтобы собрать с полным ML-стеком, уберите LIGHT_DEPS или установите "0" в секции build.args соответствующих сервисов в `docker-compose.dev.yml`.
 
 Локальный Postgres (без Docker):
 

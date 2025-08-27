@@ -29,8 +29,9 @@ RUN groupadd --gid 1000 app && \
 WORKDIR /app
 
 # Copy requirements first for better caching
+COPY requirements-base.txt ./
+COPY requirements-ml.txt ./
 COPY requirements.txt ./
-COPY requirements-light.txt ./
 COPY requirements-dev.txt ./
 
 # Development stage
@@ -38,18 +39,16 @@ FROM base as development
 
 # Install development dependencies with pip cache (robust against CRLF)
 ARG INSTALL_DEV=0
-# LIGHT_DEPS=1 — использовать requirements-light.txt
 ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    sh -c 'if [ "'$'LIGHT_DEPS'" = "1" ] && [ -f requirements-light.txt ]; then \
-        PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
-    else \
-        PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
-    fi; \
-    if [ "'$'INSTALL_DEV'" = "1" ] && [ -f requirements-dev.txt ]; then \
-        PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
-    fi; \
-    PIP_NO_CACHE_DIR=0 pip install "streamlit>=1.28.0" "plotly>=5.18.0" streamlit-option-menu==0.3.6 fpdf2 matplotlib'
+    --mount=type=cache,target=/app/.wheelhouse \
+    sh -c 'python -m pip install --upgrade pip setuptools wheel && \
+    pip wheel -r requirements-base.txt -w /app/.wheelhouse || true; \
+    if [ "'$'LIGHT_DEPS'" != "1" ]; then pip wheel -r requirements-ml.txt -w /app/.wheelhouse || true; fi; \
+    pip install --no-index --find-links=/app/.wheelhouse -r requirements-base.txt && \
+    if [ "'$'LIGHT_DEPS'" != "1" ]; then pip install --no-index --find-links=/app/.wheelhouse -r requirements-ml.txt; fi; \
+    if [ "'$'INSTALL_DEV'" = "1" ] && [ -f requirements-dev.txt ]; then pip install --no-index --find-links=/app/.wheelhouse -r requirements-dev.txt; fi; \
+    pip install --no-index --find-links=/app/.wheelhouse "streamlit>=1.28.0" "plotly>=5.18.0" streamlit-option-menu==0.3.6 fpdf2 matplotlib'
 
 # Copy only necessary code
 COPY --chown=app:app src/ ./src/
@@ -70,19 +69,19 @@ FROM base as production
 # Install only production dependencies with pip cache (robust against CRLF)
 ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    sh -c 'if [ "'$'LIGHT_DEPS'" = "1" ] && [ -f requirements-light.txt ]; then \
-        PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
-    else \
-        PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
-    fi; \
-    PIP_NO_CACHE_DIR=0 pip install "streamlit>=1.28.0" "plotly>=5.18.0" fpdf2 matplotlib'
+    --mount=type=cache,target=/app/.wheelhouse \
+    sh -c 'python -m pip install --upgrade pip setuptools wheel && \
+    pip wheel -r requirements-base.txt -w /app/.wheelhouse || true; \
+    if [ "'$'LIGHT_DEPS'" != "1" ]; then pip wheel -r requirements-ml.txt -w /app/.wheelhouse || true; fi; \
+    pip install --no-index --find-links=/app/.wheelhouse -r requirements-base.txt && \
+    if [ "'$'LIGHT_DEPS'" != "1" ]; then pip install --no-index --find-links=/app/.wheelhouse -r requirements-ml.txt; fi; \
+    pip install --no-index --find-links=/app/.wheelhouse "streamlit>=1.28.0" "plotly>=5.18.0" fpdf2 matplotlib'
 
 # Install additional dependencies for Dashboard
 RUN --mount=type=cache,target=/root/.cache/pip \
-    PIP_NO_CACHE_DIR=0 pip install \
-    reportlab==4.0.7 \
-    streamlit-authenticator==0.2.3 \
-    streamlit-option-menu==0.3.6
+    --mount=type=cache,target=/app/.wheelhouse \
+    sh -c 'pip wheel reportlab==4.0.7 streamlit-authenticator==0.2.3 streamlit-option-menu==0.3.6 -w /app/.wheelhouse || true; \
+    pip install --no-index --find-links=/app/.wheelhouse reportlab==4.0.7 streamlit-authenticator==0.2.3 streamlit-option-menu==0.3.6'
 
 # Copy source code
 COPY --chown=app:app src/ ./src/
