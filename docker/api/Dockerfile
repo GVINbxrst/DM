@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     libffi-dev \
     libssl-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user
@@ -36,7 +37,7 @@ COPY requirements-dev.txt ./
 # Development stage
 FROM base as development
 
-# Install development dependencies with pip cache (BuildKit)
+# Install development dependencies with pip cache (robust against CRLF)
 # Optional: also install dev-only tools (jupyter) when INSTALL_DEV/INSTALL_JUPYTER are set
 ARG INSTALL_DEV=0
 ARG INSTALL_JUPYTER=0
@@ -44,25 +45,25 @@ ARG INSTALL_JUPYTER=0
 ARG LIGHT_DEPS=0
 ARG LIGHT_JUPYTER=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    if [ "$LIGHT_JUPYTER" = "1" ]; then \
+    sh -c "if [ \"$LIGHT_JUPYTER\" = \"1\" ]; then \
         PIP_NO_CACHE_DIR=0 pip install --upgrade pip setuptools wheel && \
         PIP_NO_CACHE_DIR=0 pip install jupyterlab ipykernel numpy pandas matplotlib seaborn; \
-        if [ "$INSTALL_DEV" = "1" ] && [ -f requirements-dev.txt ]; then \
+        if [ -f requirements-dev.txt ] && [ \"$INSTALL_DEV\" = \"1\" ]; then \
             PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
         fi; \
     else \
-        if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+        if [ -f requirements-light.txt ] && [ \"$LIGHT_DEPS\" = \"1\" ]; then \
             PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
         else \
             PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
-        fi && \
-        if [ "$INSTALL_DEV" = "1" ] && [ -f requirements-dev.txt ]; then \
+        fi; \
+        if [ -f requirements-dev.txt ] && [ \"$INSTALL_DEV\" = \"1\" ]; then \
             PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
-        fi && \
-        if [ "$INSTALL_JUPYTER" = "1" ]; then \
+        fi; \
+        if [ \"$INSTALL_JUPYTER\" = \"1\" ]; then \
             PIP_DEFAULT_TIMEOUT=600 PIP_RETRIES=5 PIP_NO_CACHE_DIR=0 pip install jupyterlab; \
         fi; \
-    fi
+    fi"
 
 # Copy only sources needed for dev runtime
 COPY --chown=app:app src/ ./src/
@@ -80,14 +81,14 @@ CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--re
 # Production stage
 FROM base as production
 
-# Install only production dependencies with pip cache
+# Install only production dependencies with pip cache (robust against CRLF)
 ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+    sh -c "if [ \"$LIGHT_DEPS\" = \"1\" ] && [ -f requirements-light.txt ]; then \
         PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
     else \
         PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
-    fi
+    fi"
 
 # Copy source code
 COPY --chown=app:app src/ ./src/

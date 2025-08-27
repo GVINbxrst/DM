@@ -1,8 +1,3 @@
-x-app-common-env: &app-common-env
-  REDIS_URL: "redis://redis:6379/0"
-  CELERY_BROKER_URL: "redis://redis:6379/1"
-  CELERY_RESULT_BACKEND: "redis://redis:6379/2"
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -65,7 +60,9 @@ services:
         INSTALL_DEV: "1"
         LIGHT_DEPS: "1"
     environment:
-      <<: *app-common-env
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/1"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/2"
       APP_ENVIRONMENT: development
       DATABASE_URL: postgresql+asyncpg://diagmod_user:diagmod_password@postgres:5432/diagmod
       LOG_LEVEL: DEBUG
@@ -92,10 +89,12 @@ services:
       dockerfile: docker/worker/Dockerfile
       target: development
       args:
-        INSTALL_DEV: "1"
+        INSTALL_DEV: "0"
         LIGHT_DEPS: "1"
     environment:
-      <<: *app-common-env
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/1"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/2"
       APP_ENVIRONMENT: development
       DATABASE_URL: postgresql+asyncpg://diagmod_user:diagmod_password@postgres:5432/diagmod
       LOG_LEVEL: DEBUG
@@ -106,7 +105,7 @@ services:
       - ./logs:/app/logs
       - ./data:/app/data
       - ./models:/app/models
-    command: ["celery", "-A", "src.worker.celery_app", "worker", "--loglevel=debug", "--concurrency=2"]
+    command: ["python", "-m", "celery", "-A", "src.worker.celery_app", "worker", "--loglevel=debug", "--concurrency=2"]
     depends_on:
       - postgres
       - redis

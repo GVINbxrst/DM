@@ -23,7 +23,7 @@ EXPECTED_HEADER = ["current_R", "current_S", "current_T"]
 
 
 def _get_api_base() -> str:
-    return os.getenv("API_BASE_URL", "http://localhost:8000")
+    return os.getenv("API_URL") or os.getenv("API_BASE_URL") or "http://api:8000"
 
 
 def _decode_csv(file_bytes: bytes) -> str:

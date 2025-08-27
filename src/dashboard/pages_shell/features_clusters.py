@@ -18,7 +18,8 @@ import requests
 
 
 def _api() -> str:
-    return os.getenv("API_BASE_URL", "http://localhost:8000")
+    # Единая логика: сначала API_URL (compose), затем API_BASE_URL (совместимость), затем сервисное имя
+    return os.getenv("API_URL") or os.getenv("API_BASE_URL") or "http://api:8000"
 
 
 def _auth_headers() -> Dict[str, str]:

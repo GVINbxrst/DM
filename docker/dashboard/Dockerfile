@@ -36,19 +36,20 @@ COPY requirements-dev.txt ./
 # Development stage
 FROM base as development
 
-# Install development dependencies with pip cache
+# Install development dependencies with pip cache (robust against CRLF)
 ARG INSTALL_DEV=0
 # LIGHT_DEPS=1 — использовать requirements-light.txt
 ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+    sh -c 'if [ "'$'LIGHT_DEPS'" = "1" ] && [ -f requirements-light.txt ]; then \
         PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
     else \
         PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
-    fi && \
-    if [ "$INSTALL_DEV" = "1" ] && [ -f requirements-dev.txt ]; then \
+    fi; \
+    if [ "'$'INSTALL_DEV'" = "1" ] && [ -f requirements-dev.txt ]; then \
         PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
-    fi
+    fi; \
+    PIP_NO_CACHE_DIR=0 pip install "streamlit>=1.28.0"'
 
 # Copy only necessary code
 COPY --chown=app:app src/ ./src/
@@ -66,14 +67,15 @@ CMD ["streamlit", "run", "src/dashboard/main.py", "--server.port=8501", "--serve
 # Production stage
 FROM base as production
 
-# Install only production dependencies with pip cache
+# Install only production dependencies with pip cache (robust against CRLF)
 ARG LIGHT_DEPS=0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    if [ "$LIGHT_DEPS" = "1" ] && [ -f requirements-light.txt ]; then \
+    sh -c 'if [ "'$'LIGHT_DEPS'" = "1" ] && [ -f requirements-light.txt ]; then \
         PIP_NO_CACHE_DIR=0 pip install -r requirements-light.txt; \
     else \
         PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
-    fi
+    fi; \
+    PIP_NO_CACHE_DIR=0 pip install "streamlit>=1.28.0"'
 
 # Install additional dependencies for Dashboard
 RUN --mount=type=cache,target=/root/.cache/pip \
