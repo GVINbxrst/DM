@@ -9,6 +9,10 @@ try:
 except Exception:  # пакет может отсутствовать в dev-образе
     option_menu = None  # type: ignore
 
+# Тумблер: можно отключить расширенное меню без пересборки образа
+if os.getenv("DASHBOARD_SIMPLE_MENU") in {"1", "true", "True", "yes"}:
+    option_menu = None  # type: ignore
+
 
 def _inject_corporate_style() -> None:
     """Вставляет CSS: фирменные цвета и базовая стилизация."""
@@ -49,7 +53,7 @@ def main() -> None:
     with st.sidebar:
         st.markdown("### ⚙️ Диагностическая система")
         pages = [
-            "Домашняя",
+            # "Домашняя",  # временно отключено из-за некорректного отображения
             "Сырые сигналы и загрузка",
             "Признаки и кластеры",
             "Аномалии и прогноз",
@@ -59,7 +63,7 @@ def main() -> None:
             choice = option_menu(
                 "Навигация",
                 pages,
-                icons=["house", "cloud-upload", "diagram-3", "exclamation-triangle", "activity"],
+                icons=["cloud-upload", "diagram-3", "exclamation-triangle", "activity"],
                 menu_icon="menu-button-wide",
                 default_index=0,
             )
@@ -68,9 +72,7 @@ def main() -> None:
             choice = st.radio("Навигация", pages, index=0)
 
     # Маршрутизация
-    if choice == "Домашняя":
-        from dashboard.pages_shell import home as page
-    elif choice == "Сырые сигналы и загрузка":
+    if choice == "Сырые сигналы и загрузка":
         from dashboard.pages_shell import raw_upload as page
     elif choice == "Признаки и кластеры":
         from dashboard.pages_shell import features_clusters as page

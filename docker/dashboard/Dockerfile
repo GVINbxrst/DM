@@ -49,7 +49,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "'$'INSTALL_DEV'" = "1" ] && [ -f requirements-dev.txt ]; then \
         PIP_NO_CACHE_DIR=0 pip install -r requirements-dev.txt; \
     fi; \
-    PIP_NO_CACHE_DIR=0 pip install "streamlit>=1.28.0"'
+    PIP_NO_CACHE_DIR=0 pip install "streamlit>=1.28.0" "plotly>=5.18.0" streamlit-option-menu==0.3.6'
 
 # Copy only necessary code
 COPY --chown=app:app src/ ./src/
@@ -75,7 +75,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     else \
         PIP_NO_CACHE_DIR=0 pip install -r requirements.txt; \
     fi; \
-    PIP_NO_CACHE_DIR=0 pip install "streamlit>=1.28.0"'
+    PIP_NO_CACHE_DIR=0 pip install "streamlit>=1.28.0" "plotly>=5.18.0"'
 
 # Install additional dependencies for Dashboard
 RUN --mount=type=cache,target=/root/.cache/pip \

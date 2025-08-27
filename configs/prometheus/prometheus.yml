@@ -23,21 +23,13 @@ scrape_configs:
 
   # DiagMod API metrics
   - job_name: 'diagmod-api'
-    static_configs:
-      # Для локального запуска без Docker API доступно на хосте
-      - targets: ['host.docker.internal:8000']
     metrics_path: '/monitoring/metrics'
     scrape_interval: 10s
     scrape_timeout: 5s
     params:
       format: ['prometheus']
-
-  # Health checks
-  - job_name: 'diagmod-health'
     static_configs:
-      # Проверка здоровья API на хосте
-      - targets: ['host.docker.internal:8000']
-    metrics_path: '/health'
-    scrape_interval: 30s
+      # В docker-сети обращаемся по имени сервиса
+      - targets: ['api:8000']
 
 # Параметры хранения настраиваются через флаги контейнера (см. docker-compose)
