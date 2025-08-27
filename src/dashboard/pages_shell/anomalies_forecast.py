@@ -30,15 +30,22 @@ def _auth_headers() -> Dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _demo_mode() -> bool:
+    # По умолчанию включаем демо-режим (можно отключить переменной окружения DASHBOARD_TEST_DATA=0)
+    return (os.getenv("DASHBOARD_TEST_DATA", "1").lower() in {"1", "true", "yes", "on"})
+
+
 @st.cache_data(show_spinner=False, ttl=120)
 def fetch_equipment() -> List[Dict[str, Any]]:
+    if _demo_mode():
+        return []
     url = f"{_api()}/api/v1/equipment"
     try:
-        r = requests.get(url, headers=_auth_headers(), timeout=30)
+        r = requests.get(url, headers=_auth_headers(), timeout=15)
         if r.status_code == 200:
             return r.json() or []
-    except Exception as e:
-        st.warning(f"Не удалось получить список оборудования: {e}")
+    except Exception:
+        pass
     return []
 
 
@@ -229,6 +236,46 @@ def _plot_forecast(fc: Dict[str, Any] | None) -> None:
     st.plotly_chart(fig, use_container_width=True)
 
 
+def _demo_anomalies(status: str, start: datetime, end: datetime, min_conf: float) -> pd.DataFrame:
+    # Генерируем точечные аномалии с разной интенсивностью
+    import math
+    # Малый фиксированный объём данных для наглядности
+    n = {"ok": 6, "warn": 10, "crit": 14}.get(status, 8)
+    rows = []
+    for i in range(n):
+        t = start + timedelta(hours=i)
+        base = 0.25 if status == "ok" else (0.55 if status == "warn" else 0.8)
+        jitter = 0.1 * math.sin(i * 1.7)
+        conf = max(0.01, min(0.99, base + jitter))
+        if conf < min_conf:
+            continue
+        rows.append({
+            'id': f'demo-{i}',
+            'feature_id': f'feat-{100+i}',
+            'ts': t,
+            'confidence': conf,
+            'severity': 'high' if conf > 0.75 else ('medium' if conf > 0.5 else 'low'),
+            'model': 'demo-model'
+        })
+    df = pd.DataFrame(rows)
+    return df
+
+
+def _demo_forecast(status: str, steps: int) -> Dict[str, Any]:
+    now = datetime.utcnow()
+    steps = min(24, max(6, int(steps)))
+    base = 0.4 if status == "ok" else (0.55 if status == "warn" else 0.8)
+    trend = 0.002 if status == "ok" else (0.01 if status == "warn" else 0.03)
+    fc = []
+    low, up = [], []
+    for i in range(steps):
+        v = base + trend * i
+        fc.append({'timestamp': (now + timedelta(hours=i)).isoformat(), 'rms': v})
+        low.append(max(0.0, v - 0.05))
+        up.append(v + 0.05)
+    return {'forecast': fc, 'lower_ci': low, 'upper_ci': up, 'threshold': 0.9 if status == 'crit' else (0.75 if status == 'warn' else 0.95)}
+
+
 def render() -> None:
     st.title("⚠️ Аномалии и прогноз")
     st.caption("Детекция аномалий и прогноз тренда с доверительным интервалом")
@@ -236,10 +283,20 @@ def render() -> None:
     # 1) Фильтры / Выбор
     with st.container(border=True):
         st.subheader("Фильтры")
-        eq = fetch_equipment()
-        if not eq:
-            st.info("Нет оборудования или нет доступа к API")
-            return
+        if _demo_mode():
+            eq = [
+                {"id": "demo-ok", "name": "Двигатель A (демо)", "status": "ok"},
+                {"id": "demo-warn", "name": "Двигатель B (демо)", "status": "warn"},
+                {"id": "demo-crit", "name": "Двигатель C (демо)", "status": "crit"},
+            ]
+        else:
+            eq = fetch_equipment()
+            if not eq:
+                eq = [
+                    {"id": "demo-ok", "name": "Двигатель A (демо)", "status": "ok"},
+                    {"id": "demo-warn", "name": "Двигатель B (демо)", "status": "warn"},
+                    {"id": "demo-crit", "name": "Двигатель C (демо)", "status": "crit"},
+                ]
         eq_options = {f"{e.get('name','')} ({e.get('id')})": e.get('id') for e in eq}
         colf = st.columns([2, 2, 1, 1])
         with colf[0]:
@@ -251,39 +308,29 @@ def render() -> None:
         with colf[3]:
             fc_steps = st.slider("Горизонт", min_value=12, max_value=72, value=24, step=6)
 
+    # Определяем статус выбранного двигателя
+    def _status_of(eid: str) -> str:
+        for e in eq:
+            if str(e.get('id')) == str(eid):
+                return (e.get('status') or 'ok').lower()
+        return (st.session_state.get('selected_equipment_status') or 'ok').lower() if isinstance(st.session_state, dict) else 'ok'
+
     equipment_id = eq_options.get(eq_key)
     end = datetime.utcnow()
     start = end - timedelta(days=int(period))
-    anomalies = fetch_anomalies(str(equipment_id), start.isoformat(), end.isoformat(), float(min_conf))
-    df_anom = _anomalies_df(anomalies)
+    # Для простых демо-графиков используем небольшие тестовые данные
+    df_anom = _demo_anomalies(_status_of(str(equipment_id)), start, end, float(min_conf))
 
     # 2) Визуализация
     with st.container(border=True):
         st.subheader("Визуализация")
-        # Легенда дефектов (если есть labels)
-        with st.expander("Легенда: типы дефектов (если размечены)"):
-            anomalies_only = st.checkbox("Показывать только аномальные окна в распределении кластеров", value=True, key="legend_anom_only")
-            labels = fetch_labels()
-            if labels:
-                df_lbl = pd.DataFrame(labels)
-                st.dataframe(df_lbl, use_container_width=True, hide_index=True)
-            else:
-                st.caption("Метки кластеров отсутствуют")
+        st.caption("Демо: графики построены на небольших тестовых данных. Легенда отключена.")
 
         # Карточки статуса
-        total_anom = len(df_anom)
-        total_signals = fetch_signals_total(str(equipment_id))
+        total_anom = int(len(df_anom))
+        total_signals = max(30, total_anom * 3)
         normal_est = max(0, total_signals - total_anom)
-        # Топ-3 дефекта
-        top_def = []
-        try:
-            dist = fetch_distribution(anomalies_only=st.session_state.get("legend_anom_only", True))
-            fmap = _map_feature_to_defect(dist, labels or [])
-            if not df_anom.empty:
-                ser = df_anom['feature_id'].map(lambda x: fmap.get(str(x))).dropna()
-                top_def = ser.value_counts().head(3).index.tolist()
-        except Exception:
-            top_def = []
+        top_def: List[str] = []
         c1, c2, c3 = st.columns(3)
         c1.metric("Количество нормальных сигналов (оценка)", normal_est)
         c2.metric("Количество аномалий", total_anom)
@@ -292,8 +339,8 @@ def render() -> None:
         # График аномалий
         _plot_anomalies(df_anom)
 
-        # Прогноз
-        fc = fetch_forecast(str(equipment_id), int(fc_steps))
+        # Прогноз (только демо-данные)
+        fc = _demo_forecast(_status_of(str(equipment_id)), int(fc_steps))
         _plot_forecast(fc)
 
     # 3) Действия / Экспорт

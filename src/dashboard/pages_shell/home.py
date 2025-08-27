@@ -38,7 +38,7 @@ def render() -> None:
         if r.status_code == 200:
             engines = r.json() or []
     except Exception:
-        pass
+        engines = []
 
     if not engines:
         st.info(
@@ -47,26 +47,16 @@ def render() -> None:
         )
         st.write("\n")
         st.write("Пока вы можете перейти на другие разделы через меню слева.")
-        # Показать условную таблицу с картинками-заглушками и светофорами
-        cols = st.columns(3)
-        demo_status = ["ok", "warn", "crit", "ok", "warn", "ok"]
-        for i in range(6):
-            with cols[i % 3]:
-                with st.container(border=True):
-                    # Пробуем локальную картинку; если файл отсутствует, используем placeholder
-                    img_path = "E:/двигатель.png"
-                    if not os.path.exists(img_path):
-                        img_path = "https://via.placeholder.com/320x180.png?text=Engine"
-                    st.image(img_path, caption=f"Двигатель {i+1}", use_column_width=True)
-                    # Светофор
-                    status = demo_status[i % len(demo_status)]
-                    color = {"ok": "#21ba45", "warn": "#f2c037", "crit": "#db2828"}[status]
-                    st.markdown(f"<div style='display:flex;align-items:center;gap:8px'>"
-                                f"<span style='display:inline-block;width:12px;height:12px;border-radius:50%;background:{color}'></span>"
-                                f"<span>{'Все хорошо' if status=='ok' else ('Требует внимания' if status=='warn' else 'Критично')}</span>"
-                                f"</div>", unsafe_allow_html=True)
-                    st.button("Открыть", key=f"open_demo_{i}")
-        return
+        # Демо-оборудование, если API недоступен/данных нет
+        engines = [
+            {"id": "demo-ok", "name": "Двигатель A (демо)", "status": "ok"},
+            {"id": "demo-warn", "name": "Двигатель B (демо)", "status": "warn"},
+            {"id": "demo-crit", "name": "Двигатель C (демо)", "status": "crit"},
+            {"id": "demo-ok-2", "name": "Двигатель D (демо)", "status": "ok"},
+            {"id": "demo-warn-2", "name": "Двигатель E (демо)", "status": "warn"},
+            {"id": "demo-ok-3", "name": "Двигатель F (демо)", "status": "ok"},
+        ]
+        # Падать вниз на общий рендер карточек
 
     # Если список есть — сетка карточек двигателей с изображениями-заглушками
     st.subheader("Двигатели")

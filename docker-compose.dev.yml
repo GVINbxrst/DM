@@ -122,6 +122,8 @@ services:
     environment:
       API_URL: http://api:8000
       LOG_LEVEL: DEBUG
+      STREAMLIT_SERVER_FILEWATCHER_TYPE: poll
+      DASHBOARD_TEST_DATA: "1"
     volumes:
       - ./src:/app/src
       - ./pyproject.toml:/app/pyproject.toml
