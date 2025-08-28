@@ -343,6 +343,14 @@ def render() -> None:
         fc = _demo_forecast(_status_of(str(equipment_id)), int(fc_steps))
         _plot_forecast(fc)
 
+        # Мини‑таблица последних демо‑сигналов
+        demo_signals = pd.DataFrame([
+            {"id": "rs-1", "equipment": eq_key, "status": _status_of(str(equipment_id)), "rms": 0.55, "ts": end.strftime('%Y-%m-%d %H:%M')},
+            {"id": "rs-2", "equipment": eq_key, "status": _status_of(str(equipment_id)), "rms": 0.58, "ts": (end - timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')},
+        ])
+        st.caption("Последние сигналы (демо)")
+        st.dataframe(demo_signals, use_container_width=True)
+
     # 3) Действия / Экспорт
     st.divider()
     with st.container(border=True):

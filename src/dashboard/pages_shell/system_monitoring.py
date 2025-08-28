@@ -19,6 +19,10 @@ def _api() -> str:
     return os.getenv("API_URL") or os.getenv("API_BASE_URL") or "http://api:8000"
 
 
+def _demo_mode() -> bool:
+    return (os.getenv("DASHBOARD_TEST_DATA", "1").lower() in {"1", "true", "yes", "on"})
+
+
 def _auth_headers() -> Dict[str, str]:
     token = st.session_state.get("token") if isinstance(st.session_state, dict) else None
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -26,6 +30,11 @@ def _auth_headers() -> Dict[str, str]:
 
 @st.cache_data(show_spinner=False, ttl=20)
 def fetch_equipment() -> List[Dict[str, Any]]:
+    if _demo_mode():
+        return [
+            {"id": "demo-ok", "name": "Двигатель A (демо)", "status": "ok"},
+            {"id": "demo-warn", "name": "Двигатель B (демо)", "status": "warn"},
+        ]
     url = f"{_api()}/api/v1/equipment"
     try:
         r = requests.get(url, headers=_auth_headers(), timeout=20)
@@ -38,6 +47,8 @@ def fetch_equipment() -> List[Dict[str, Any]]:
 
 @st.cache_data(show_spinner=False, ttl=20)
 def fetch_signals_total(equipment_id: str) -> int:
+    if _demo_mode():
+        return 42 if str(equipment_id).endswith("ok") else 24
     url = f"{_api()}/api/v1/signals"
     try:
         r = requests.get(url, params={"equipment_id": equipment_id, "page": 1, "page_size": 1}, headers=_auth_headers(), timeout=20)
@@ -50,6 +61,8 @@ def fetch_signals_total(equipment_id: str) -> int:
 
 @st.cache_data(show_spinner=False, ttl=20)
 def fetch_anomalies_total_last_days(equipment_id: str, days: int = 30) -> int:
+    if _demo_mode():
+        return 3 if str(equipment_id).endswith("ok") else 7
     end = datetime.utcnow().isoformat()
     start = (datetime.utcnow() - timedelta(days=days)).isoformat()
     url = f"{_api()}/api/v1/anomalies/{equipment_id}"
@@ -64,6 +77,8 @@ def fetch_anomalies_total_last_days(equipment_id: str, days: int = 30) -> int:
 
 @st.cache_data(show_spinner=False, ttl=20)
 def fetch_cluster_count() -> int:
+    if _demo_mode():
+        return 3
     # Предпочитаем centroids в distribution; иначе считаем уникальные cluster_id из points; fallback — по labels
     try:
         r = requests.get(f"{_api()}/admin/clustering/distribution", headers=_auth_headers(), timeout=30)

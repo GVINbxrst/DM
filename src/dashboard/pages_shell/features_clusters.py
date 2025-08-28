@@ -22,6 +22,10 @@ def _api() -> str:
     return os.getenv("API_URL") or os.getenv("API_BASE_URL") or "http://api:8000"
 
 
+def _demo_mode() -> bool:
+    return (os.getenv("DASHBOARD_TEST_DATA", "1").lower() in {"1", "true", "yes", "on"})
+
+
 def _auth_headers() -> Dict[str, str]:
     token = st.session_state.get("token") if isinstance(st.session_state, dict) else None
     return {"Authorization": f"Bearer {token}"} if token else {}
@@ -29,6 +33,22 @@ def _auth_headers() -> Dict[str, str]:
 
 @st.cache_data(show_spinner=False, ttl=60)
 def fetch_distribution(anomalies_only: bool = False) -> Dict[str, Any] | None:
+    if _demo_mode():
+        # компактные демо‑данные (5 точек) для лёгкой визуализации
+        return {
+            "points": [
+                {"x": 0.1, "y": 0.2, "cluster_id": 0, "feature_id": "f1"},
+                {"x": 0.2, "y": 0.1, "cluster_id": 0, "feature_id": "f2"},
+                {"x": 0.8, "y": 0.7, "cluster_id": 1, "feature_id": "f3"},
+                {"x": 0.85, "y": 0.72, "cluster_id": 1, "feature_id": "f4"},
+                {"x": 0.5, "y": 0.5, "cluster_id": 2, "feature_id": "f5"},
+            ],
+            "clusters": [
+                {"cluster_id": 0, "count": 2},
+                {"cluster_id": 1, "count": 2},
+                {"cluster_id": 2, "count": 1},
+            ],
+        }
     url = f"{_api()}/admin/clustering/distribution"
     try:
         r = requests.get(url, params={"anomalies_only": str(bool(anomalies_only)).lower()}, headers=_auth_headers(), timeout=60)
@@ -41,6 +61,12 @@ def fetch_distribution(anomalies_only: bool = False) -> Dict[str, Any] | None:
 
 @st.cache_data(show_spinner=False, ttl=60)
 def fetch_labels() -> List[Dict[str, Any]]:
+    if _demo_mode():
+        return [
+            {"cluster_id": 0, "defect_id": "Норма"},
+            {"cluster_id": 1, "defect_id": "Дисбаланс"},
+            {"cluster_id": 2, "defect_id": "Разрегулировка"},
+        ]
     url = f"{_api()}/admin/clustering/labels"
     try:
         r = requests.get(url, headers=_auth_headers(), timeout=30)
@@ -210,4 +236,15 @@ def render() -> None:
                     )
                 else:
                     st.caption("Экспорт CSV недоступен: нет точек кластера.")
+
+    # Дополнительно: мини‑таблица демо‑сигналов для ок/warn/crit
+    if _demo_mode():
+        st.divider()
+        st.subheader("Примеры сигналов (демо)")
+        demo = pd.DataFrame([
+            {"equipment": "A", "status": "ok", "rms": 0.42, "ts": "2025-08-28T10:00:00"},
+            {"equipment": "B", "status": "warn", "rms": 0.61, "ts": "2025-08-28T10:00:00"},
+            {"equipment": "C", "status": "crit", "rms": 0.83, "ts": "2025-08-28T10:00:00"},
+        ])
+        st.dataframe(demo, use_container_width=True)
 
