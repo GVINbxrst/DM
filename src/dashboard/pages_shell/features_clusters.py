@@ -174,7 +174,7 @@ def render() -> None:
                 color_discrete_sequence=["#003057", "#0095D9", "#5DC9F5", "#0B1F35", "#7FB3D5"],
             )
             fig.update_layout(plot_bgcolor="#FFFFFF")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
     # Список кластеров
     clusters = dist.get('clusters') if isinstance(dist, dict) else None
@@ -246,5 +246,5 @@ def render() -> None:
             {"equipment": "B", "status": "warn", "rms": 0.61, "ts": "2025-08-28T10:00:00"},
             {"equipment": "C", "status": "crit", "rms": 0.83, "ts": "2025-08-28T10:00:00"},
         ])
-        st.dataframe(demo, use_container_width=True)
+    st.dataframe(demo, width="stretch")
 

@@ -81,7 +81,7 @@ def _parse_csv(text: str) -> pd.DataFrame:
 
 def _preview_table(df: pd.DataFrame) -> None:
     st.subheader("Предпросмотр (первые 20 строк)")
-    st.dataframe(df.head(20), use_container_width=True)
+    st.dataframe(df.head(20), width="stretch")
 
 
 def _plot_phases(df: pd.DataFrame, default: List[str] | None = None) -> None:
@@ -105,7 +105,7 @@ def _plot_phases(df: pd.DataFrame, default: List[str] | None = None) -> None:
     for col in sel:
         fig.add_trace(go.Scatter(x=x, y=df[col], mode="lines", name=col, line=dict(color=colors.get(col))))
     fig.update_layout(height=400, xaxis_title="Отсчёт", yaxis_title="Ток (А)", plot_bgcolor="#FFFFFF")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _to_canonical_csv_bytes(df: pd.DataFrame) -> bytes:

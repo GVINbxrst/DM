@@ -182,7 +182,7 @@ def _plot_anomalies(df: pd.DataFrame) -> None:
     fig = px.scatter(df.sort_values('ts'), x='ts', y='confidence', color='model', hover_data=['feature_id', 'severity'])
     fig.update_traces(mode='lines+markers')
     fig.update_layout(height=380, yaxis_title='Уверенность', xaxis_title='Время')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _plot_forecast(fc: Dict[str, Any] | None) -> None:
@@ -233,7 +233,7 @@ def _plot_forecast(fc: Dict[str, Any] | None) -> None:
     if thr is not None:
         fig.add_hline(y=thr, line_dash='dash', line_color='red', annotation_text='порог')
     fig.update_layout(height=380, yaxis_title='RMS', xaxis_title='Время')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def _demo_anomalies(status: str, start: datetime, end: datetime, min_conf: float) -> pd.DataFrame:
@@ -349,7 +349,7 @@ def render() -> None:
             {"id": "rs-2", "equipment": eq_key, "status": _status_of(str(equipment_id)), "rms": 0.58, "ts": (end - timedelta(hours=1)).strftime('%Y-%m-%d %H:%M')},
         ])
         st.caption("Последние сигналы (демо)")
-        st.dataframe(demo_signals, use_container_width=True)
+    st.dataframe(demo_signals, width="stretch")
 
     # 3) Действия / Экспорт
     st.divider()

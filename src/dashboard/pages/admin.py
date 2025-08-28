@@ -75,7 +75,7 @@ class AdminPage:
 
             # Таблица пользователей
             df_users = pd.DataFrame(users)
-            st.dataframe(df_users, use_container_width=True)
+            st.dataframe(df_users, width="stretch")
 
             # Действия с пользователями
             st.subheader("Действия")
@@ -172,7 +172,7 @@ class AdminPage:
                     y=[d['requests'] for d in stats['daily_activity']],
                     title="Активность по дням"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
             # График распределения типов аномалий
             if 'anomaly_types' in stats:
@@ -181,7 +181,7 @@ class AdminPage:
                     names=list(stats['anomaly_types'].keys()),
                     title="Распределение типов аномалий"
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width="stretch")
 
     def _render_security_audit(self):
         """Аудит безопасности"""
@@ -213,7 +213,7 @@ class AdminPage:
             # Таблица событий
             df_events = pd.DataFrame(security_events)
             if not df_events.empty:
-                st.dataframe(df_events, use_container_width=True)
+                st.dataframe(df_events, width="stretch")
 
         # Настройки безопасности
         st.subheader("Настройки безопасности")

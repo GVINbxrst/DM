@@ -27,7 +27,7 @@ def render_trends(api_base_url: str, token: str, equipment_id: str):
         df['ts'] = pd.to_datetime(df['ts'])
     df = df.sort_values('ts')
     fig = px.line(df, x='ts', y='rms_mean', title='RMS (mean) по часам')
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.subheader("🛡️ Прогноз риска (sequence model)")
     horizon = st.slider("Горизонт прогноза (окон)", min_value=3, max_value=24, value=5)
@@ -67,7 +67,7 @@ def render_trends(api_base_url: str, token: str, equipment_id: str):
                         if thr is not None:
                             import plotly.graph_objects as go
                             fig_fc.add_hline(y=thr, line_dash='dash', line_color='red', annotation_text='threshold')
-                        st.plotly_chart(fig_fc, use_container_width=True)
+                        st.plotly_chart(fig_fc, width="stretch")
                         st.caption(f"Модель: {data.get('model')} ProbOver: {data.get('probability_over_threshold'):.3f}")
                     else:
                         st.info("Нет данных прогноза")

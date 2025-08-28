@@ -54,7 +54,7 @@ class UIComponents:
         if columns:
             df = df[columns] if all(col in df.columns for col in columns) else df
 
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df, width="stretch")
 
     @staticmethod
     def create_progress_bar(current: int, total: int, label: str):
